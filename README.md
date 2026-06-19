@@ -13,6 +13,12 @@ note length, and annotations (captures, checks, checkmate) control loudness.
 White and Black are placed in different registers and given different
 instruments so you can hear the two players converse.
 
+The result is shaped to sound like an actual song rather than a random walk:
+every note is quantised to a single musical key, moves fall on a steady beat, a
+bass line and chords play underneath, and a short hook based on the game's
+opening bookends the piece as an intro and a closing chorus — so games (and
+openings) become tunes you can actually remember.
+
 It can also render an **animated MP4** in which the pieces slide across the
 board in time with the music, in either a **Lichess** or **Chess.com** board
 view.
@@ -203,8 +209,21 @@ starts; the container needs ~512 MB to render video comfortably.
   its own key, derived deterministically from the players, event and opening, so
   a given game always sounds the same and different games are spread across the
   twelve keys.
-- **Duration** — pawn = eighth, knight/bishop/king = quarter, rook = dotted
-  quarter, queen = half note.
+- **Meter** — moves are laid out on a steady beat, one per bar of common time,
+  and the first beat of each bar is accented, giving the music a clear,
+  foot-tapping pulse.
+- **Opening hook** — the piece opens with a short motif chosen from the game's
+  opening (a curated melody for ~36 well-known openings, or a deterministic one
+  derived from the moves otherwise). The same opening always yields the same
+  hook, so you can learn to recognise an opening — or a whole game — by its tune.
+- **Chorus & form** — that hook returns at the end as a closing chorus and
+  resolves on a held tonic, giving the music an ABA song form: intro hook, the
+  game, then the hook again.
+- **Accompaniment** — a bass line and a sustained chord pad play underneath the
+  melody. Each bar's chord follows the melody note on its downbeat, so the
+  harmony is always in key and gives the tune a song-like backing.
+- **Duration** — pawns and minor pieces last one beat; the queen rings out for
+  two, like a long, singing note.
 - **Instruments** — each piece has its own voice: pawn = piano, knight = horn,
   bishop = organ, rook = tuba, queen = violin, king = choir. These can be
   remapped per piece (via the web UI or the API).
