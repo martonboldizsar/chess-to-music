@@ -110,6 +110,10 @@ type Config struct {
 	// giving the piece a harmonic foundation so it sounds like a song rather
 	// than a single unaccompanied line.
 	Harmony bool
+	// Chorus reprises the opening hook at the end as a chorus, giving the music
+	// an ABA song form that resolves on the tonic. Hearing the hook return makes
+	// the tune more memorable.
+	Chorus bool
 	// Instruments optionally overrides which instrument each piece plays. Any
 	// piece missing from the map falls back to the default assignment.
 	Instruments map[pgn.Piece]Instrument
@@ -121,7 +125,7 @@ const KeyAuto = -1
 
 // DefaultConfig returns a musically sensible default mapping.
 func DefaultConfig() Config {
-	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto, Beat: 2, Meter: 4, Intro: true, Harmony: true}
+	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto, Beat: 2, Meter: 4, Intro: true, Harmony: true, Chorus: true}
 }
 
 // instrumentFor returns the instrument a piece should play under cfg, honouring
@@ -342,8 +346,9 @@ type TimedNote struct {
 // Build converts a parsed game into a Score using the supplied configuration.
 // Moves are laid out on a steady beat grid, the note that opens each bar is
 // accented so the meter is easy to feel, a short opening motif is played first
-// as a recognisable hook, and (when enabled) a bass line and chord pad are laid
-// underneath so the result sounds like a song.
+// as a recognisable hook, a bass line and chord pad are laid underneath, and
+// (when enabled) the hook returns at the end as a chorus so the result has an
+// ABA song form.
 func Build(game *pgn.Game, cfg Config) Score {
 	cfg = cfg.resolve(game)
 	s := Score{Title: game.Title(), Tempo: cfg.Tempo, Config: cfg}
@@ -371,6 +376,22 @@ func Build(game *pgn.Game, cfg Config) Score {
 	for _, mv := range game.Moves {
 		emit(noteFor(mv, cfg))
 	}
+
+	// Reprise the opening hook as a closing chorus. Pad the game out to a whole
+	// bar first so the chorus starts cleanly on a downbeat.
+	if outro := cfg.outroChorus(game); len(outro) > 0 {
+		if barEighths > 0 && len(s.Notes) > 0 {
+			if rem := pos % barEighths; rem != 0 {
+				pad := barEighths - rem
+				s.Notes[len(s.Notes)-1].Duration += pad
+				pos += pad
+			}
+		}
+		for _, n := range outro {
+			emit(n)
+		}
+	}
+
 	s.Accompaniment = cfg.accompaniment(s.Notes, starts)
 	return s
 }
@@ -490,39 +511,40 @@ func (cfg Config) degreeOffset(degree int) int {
 // not as punchy as the game's accents.
 const openingMotifVelocity = 92
 
-// introMotif builds the short opening hook for a game and returns it together
-// with the recognised opening name (empty when unknown). The hook is the same
-// for every game that starts with the same opening, which is what lets players
-// recognise an opening by its tune. It is padded to whole bars so the game
-// itself still begins on a downbeat.
-func (cfg Config) introMotif(game *pgn.Game) ([]Note, string) {
-	if !cfg.Intro {
-		return nil, ""
-	}
+// chorusVelocity is how loud the closing chorus plays: a touch stronger than
+// the intro so the returning hook lands like a climax.
+const chorusVelocity = 100
+
+// openingDegrees returns the scale-degree motif for the game's opening (curated
+// when the line is known, otherwise derived) plus the recognised opening name.
+func (cfg Config) openingDegrees(game *pgn.Game) ([]int, string) {
 	tokens := openingTokens(game)
 	if len(tokens) == 0 {
 		return nil, ""
 	}
 	name, degrees := lookupOpening(tokens, len(scaleSteps[cfg.Scale]))
-	if len(degrees) == 0 {
-		return nil, name
-	}
+	return degrees, name
+}
 
+// renderMotif turns a sequence of scale degrees into melody notes played by a
+// clear violin lead, padding the final note so the phrase fills whole bars and
+// whatever follows lands on a downbeat.
+func (cfg Config) renderMotif(degrees []int, velocity int, san string) []Note {
+	if len(degrees) == 0 {
+		return nil
+	}
 	base := 12*(cfg.BaseOctave+1) + cfg.Key
 	notes := make([]Note, 0, len(degrees))
 	for _, d := range degrees {
 		notes = append(notes, Note{
 			Pitches:    []int{base + cfg.degreeOffset(d)},
 			Duration:   cfg.Beat,
-			Velocity:   openingMotifVelocity,
+			Velocity:   velocity,
 			Color:      pgn.White,
 			Instrument: InstViolin, // a clear, singing lead for the hook
-			SAN:        "opening",
+			SAN:        san,
 		})
 	}
-
-	// Pad the motif out to a whole number of bars so the first move lands on a
-	// downbeat. The final note simply rings a little longer.
 	if barEighths := cfg.Beat * cfg.Meter; barEighths > 0 {
 		total := 0
 		for _, n := range notes {
@@ -532,7 +554,48 @@ func (cfg Config) introMotif(game *pgn.Game) ([]Note, string) {
 			notes[len(notes)-1].Duration += barEighths - rem
 		}
 	}
-	return notes, name
+	return notes
+}
+
+// introMotif builds the short opening hook for a game and returns it together
+// with the recognised opening name (empty when unknown). The hook is the same
+// for every game that starts with the same opening, which is what lets players
+// recognise an opening by its tune. It is padded to whole bars so the game
+// itself still begins on a downbeat.
+func (cfg Config) introMotif(game *pgn.Game) ([]Note, string) {
+	if !cfg.Intro {
+		return nil, ""
+	}
+	degrees, name := cfg.openingDegrees(game)
+	return cfg.renderMotif(degrees, openingMotifVelocity, "opening"), name
+}
+
+// outroChorus reprises the opening hook at the end of the piece as a chorus and
+// closes on a sustained tonic, giving the music an ABA song form with a clear
+// resolution. The returning hook is what makes the tune stick in the memory.
+func (cfg Config) outroChorus(game *pgn.Game) []Note {
+	if !cfg.Chorus {
+		return nil
+	}
+	degrees, _ := cfg.openingDegrees(game)
+	chorus := cfg.renderMotif(degrees, chorusVelocity, "chorus")
+	if len(chorus) == 0 {
+		return nil
+	}
+	// End on a held tonic for a full bar: a satisfying, song-like close.
+	dur := cfg.Beat * cfg.Meter
+	if dur <= 0 {
+		dur = cfg.Beat
+	}
+	chorus = append(chorus, Note{
+		Pitches:    []int{12*(cfg.BaseOctave+1) + cfg.Key},
+		Duration:   dur,
+		Velocity:   openingMotifVelocity,
+		Color:      pgn.White,
+		Instrument: InstViolin,
+		SAN:        "ending",
+	})
+	return chorus
 }
 
 // openingTokens returns the normalised SAN of the game's first few plies, with
