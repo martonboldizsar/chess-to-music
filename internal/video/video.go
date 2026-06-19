@@ -29,8 +29,8 @@ func Available() bool {
 }
 
 const (
-	boardSize = 480 // pixel side length of the rendered board (multiple of 8)
-	fps       = 24
+	boardSize = 360 // pixel side length of the rendered board (multiple of 8)
+	fps       = 12
 	tailHold  = 1.2 // seconds the final position lingers after the music ends
 )
 
@@ -79,6 +79,7 @@ func RenderMP4(score music.Score, plies []board.Ply, positions []board.Position,
 		"-i", filepath.Join(dir, "f%06d.png"),
 		"-i", wavPath,
 		"-c:v", "libx264",
+		"-preset", "veryfast",
 		"-pix_fmt", "yuv420p",
 		"-c:a", "aac",
 		"-b:a", "192k",

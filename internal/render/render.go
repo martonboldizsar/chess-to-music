@@ -254,7 +254,9 @@ func (r *Renderer) drawPiece(img *image.RGBA, kind pgn.Piece, c pgn.Color, file,
 	dotX := fixed.Int26_6(cx*64) - bounds.Min.X - gw/2
 	dotY := fixed.Int26_6(cy*64) - bounds.Min.Y - gh/2
 
-	// Outline: draw the glyph offset in eight directions.
+	// Outline: draw the glyph offset in the four cardinal directions. Using
+	// four passes (instead of eight) roughly halves the per-piece draw cost
+	// while still giving the glyph a clear edge against the board.
 	off := r.sq / 28
 	if off < 1 {
 		off = 1
@@ -263,7 +265,6 @@ func (r *Renderer) drawPiece(img *image.RGBA, kind pgn.Piece, c pgn.Color, file,
 	outlineSrc := &image.Uniform{outline}
 	for _, d := range [][2]fixed.Int26_6{
 		{-ofx, 0}, {ofx, 0}, {0, -ofx}, {0, ofx},
-		{-ofx, -ofx}, {ofx, -ofx}, {-ofx, ofx}, {ofx, ofx},
 	} {
 		od := &font.Drawer{Dst: img, Src: outlineSrc, Face: r.pieceFace}
 		od.Dot = fixed.Point26_6{X: dotX + d[0], Y: dotY + d[1]}
