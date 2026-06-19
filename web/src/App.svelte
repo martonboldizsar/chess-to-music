@@ -43,6 +43,7 @@
     let saveTitle = $state("");
     let saving = $state(false);
     let saveMessage = $state("");
+    let deleting = $state(false);
 
     const prettyPiece = (p) => p.charAt(0).toUpperCase() + p.slice(1);
     const prettyInstrument = (i) => i.charAt(0).toUpperCase() + i.slice(1);
@@ -146,6 +147,45 @@
         }
     }
 
+    // Delete the currently selected (non-built-in) game from the library.
+    async function deleteGame() {
+        if (!selectedGameId) return;
+        const current = games.find((g) => String(g.id) === selectedGameId);
+        if (current?.builtin) return;
+        const name = current ? gameLabel(current) : "this game";
+        if (
+            !confirm(
+                `Delete “${name}” from the library? This cannot be undone.`,
+            )
+        )
+            return;
+        error = "";
+        saveMessage = "";
+        deleting = true;
+        try {
+            const res = await fetch(`/api/games/${selectedGameId}`, {
+                method: "DELETE",
+            });
+            if (!res.ok && res.status !== 204) {
+                let msg = `Delete failed (${res.status})`;
+                try {
+                    const body = await res.json();
+                    if (body?.error) msg = body.error;
+                } catch {
+                    /* non-JSON error body */
+                }
+                throw new Error(msg);
+            }
+            saveMessage = `Deleted “${name}” from the library.`;
+            selectedGameId = "";
+            await loadGames();
+        } catch (e) {
+            error = e.message;
+        } finally {
+            deleting = false;
+        }
+    }
+
     // Read an uploaded .pgn file into the textarea.
     function onFile(event) {
         const file = event.target.files?.[0];
@@ -208,6 +248,12 @@
     const downloadLabel = $derived(
         downloadName.slice(downloadName.lastIndexOf(".") + 1).toUpperCase(),
     );
+
+    // A game can be deleted only when a non-built-in library game is selected.
+    const canDelete = $derived(
+        !!selectedGameId &&
+            !games.find((g) => String(g.id) === selectedGameId)?.builtin,
+    );
 </script>
 
 <div class="wrap">
@@ -225,18 +271,32 @@
         {#if libraryAvailable}
             <div class="field" style="margin-bottom:1rem">
                 <label for="library">Pick a saved game</label>
-                <select
-                    id="library"
-                    value={selectedGameId}
-                    onchange={onSelectGame}
-                >
-                    <option value="">— Choose from the library —</option>
-                    {#each games as g (g.id)}
-                        <option value={String(g.id)}>
-                            {g.builtin ? "★ " : ""}{gameLabel(g)}
-                        </option>
-                    {/each}
-                </select>
+                <div class="library-row">
+                    <select
+                        id="library"
+                        value={selectedGameId}
+                        onchange={onSelectGame}
+                    >
+                        <option value="">— Choose from the library —</option>
+                        {#each games as g (g.id)}
+                            <option value={String(g.id)}>
+                                {g.builtin ? "★ " : ""}{gameLabel(g)}
+                            </option>
+                        {/each}
+                    </select>
+                    {#if canDelete}
+                        <button
+                            type="button"
+                            class="btn-danger"
+                            onclick={deleteGame}
+                            disabled={deleting}
+                            title="Delete this game from the library"
+                        >
+                            {#if deleting}<span class="spinner"
+                                ></span>Deleting…{:else}Delete{/if}
+                        </button>
+                    {/if}
+                </div>
             </div>
         {/if}
 

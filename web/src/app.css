@@ -164,6 +164,28 @@ button {
     border: 1px solid var(--border);
 }
 
+.library-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: stretch;
+}
+
+.library-row select {
+    flex: 1 1 auto;
+}
+
+.btn-danger {
+    white-space: nowrap;
+    background: transparent;
+    color: #e06c6c;
+    border: 1px solid #e06c6c;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #e06c6c;
+    color: white;
+}
+
 button:disabled {
     opacity: 0.55;
     cursor: not-allowed;

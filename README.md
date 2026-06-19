@@ -5,6 +5,9 @@ Turn a chess game into music. `chess-to-music` reads a game in standard **PGN**
 maps every move to a musical note, then writes the result in several standard
 formats.
 
+> **Try it live:** [chess-to-music.onrender.com](https://chess-to-music.onrender.com)
+> (hosted on Render's free tier, so the first load may take a moment to wake up).
+
 Each move's destination square becomes a pitch, the moving piece decides the
 note length, and annotations (captures, checks, checkmate) control loudness.
 White and Black are placed in different registers and given different

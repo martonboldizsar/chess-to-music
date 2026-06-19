@@ -107,6 +107,7 @@ func main() {
 	mux.HandleFunc("GET /api/games", srv.handleListGames)
 	mux.HandleFunc("GET /api/games/{id}", srv.handleGetGame)
 	mux.HandleFunc("POST /api/games", srv.handleSaveGame)
+	mux.HandleFunc("DELETE /api/games/{id}", srv.handleDeleteGame)
 
 	// Serve the embedded Svelte build at the root.
 	dist, err := fs.Sub(web.Dist, "dist")
@@ -359,6 +360,31 @@ func (s *server) handleSaveGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, saved)
+}
+
+// handleDeleteGame removes a user-saved game. Built-in library games are
+// protected and cannot be deleted.
+func (s *server) handleDeleteGame(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "game library is not available")
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid game id")
+		return
+	}
+	err = s.store.DeleteGame(r.Context(), id)
+	switch {
+	case errors.Is(err, db.ErrNotFound):
+		writeError(w, http.StatusNotFound, "game not found")
+	case errors.Is(err, db.ErrBuiltin):
+		writeError(w, http.StatusForbidden, "built-in games cannot be deleted")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("could not delete game: %v", err))
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -158,3 +158,32 @@ func (s *Store) SaveGame(ctx context.Context, g Game) (Game, error) {
 	}
 	return g, nil
 }
+
+// ErrBuiltin is returned when attempting to delete a built-in library game.
+var ErrBuiltin = errors.New("cannot delete a built-in game")
+
+// DeleteGame removes a user-saved game by ID. Built-in library games cannot be
+// deleted; attempting to do so returns ErrBuiltin. A missing game returns
+// ErrNotFound.
+func (s *Store) DeleteGame(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM games WHERE id = $1 AND builtin = FALSE`, id)
+	if err != nil {
+		return fmt.Errorf("deleting game: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Distinguish "no such game" from "exists but is built-in".
+		var builtin bool
+		err := s.pool.QueryRow(ctx, `SELECT builtin FROM games WHERE id = $1`, id).Scan(&builtin)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("deleting game: %w", err)
+		}
+		if builtin {
+			return ErrBuiltin
+		}
+		return ErrNotFound
+	}
+	return nil
+}
