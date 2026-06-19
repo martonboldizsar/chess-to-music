@@ -106,6 +106,10 @@ type Config struct {
 	// musical "hook" that is the same for every game in the same opening, so a
 	// game can be recalled by its tune.
 	Intro bool
+	// Harmony enables a bass line and sustained chord pad underneath the melody,
+	// giving the piece a harmonic foundation so it sounds like a song rather
+	// than a single unaccompanied line.
+	Harmony bool
 	// Instruments optionally overrides which instrument each piece plays. Any
 	// piece missing from the map falls back to the default assignment.
 	Instruments map[pgn.Piece]Instrument
@@ -117,7 +121,7 @@ const KeyAuto = -1
 
 // DefaultConfig returns a musically sensible default mapping.
 func DefaultConfig() Config {
-	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto, Beat: 2, Meter: 4, Intro: true}
+	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto, Beat: 2, Meter: 4, Intro: true, Harmony: true}
 }
 
 // instrumentFor returns the instrument a piece should play under cfg, honouring
@@ -306,26 +310,50 @@ var instrumentByPiece = map[pgn.Piece]Instrument{
 
 // Score is the full musical rendering of a game.
 type Score struct {
-	Title   string
-	Opening string // recognised opening name, if any (for labelling)
-	Tempo   int
-	Notes   []Note
-	Config  Config
+	Title         string
+	Opening       string // recognised opening name, if any (for labelling)
+	Tempo         int
+	Notes         []Note      // the sequential melody
+	Accompaniment []TimedNote // bass + chord pad played underneath the melody
+	Config        Config
+}
+
+// AccVoice identifies which accompaniment layer a TimedNote belongs to, so the
+// renderers can give the bass and the chord pad their own timbre and register.
+type AccVoice int
+
+const (
+	AccBass AccVoice = iota // the low root note holding down the harmony
+	AccPad                  // the sustained chord pad filling out the harmony
+)
+
+// TimedNote is a note scheduled to start at an absolute position in the piece,
+// used for the accompaniment that plays concurrently with the sequential
+// melody. Start and Duration are measured in eighth-note units.
+type TimedNote struct {
+	Start    int
+	Duration int
+	Pitches  []int
+	Velocity int
+	Voice    AccVoice
 }
 
 // Build converts a parsed game into a Score using the supplied configuration.
 // Moves are laid out on a steady beat grid, the note that opens each bar is
-// accented so the meter is easy to feel, and (when enabled) a short opening
-// motif is played first as a recognisable hook.
+// accented so the meter is easy to feel, a short opening motif is played first
+// as a recognisable hook, and (when enabled) a bass line and chord pad are laid
+// underneath so the result sounds like a song.
 func Build(game *pgn.Game, cfg Config) Score {
 	cfg = cfg.resolve(game)
 	s := Score{Title: game.Title(), Tempo: cfg.Tempo, Config: cfg}
 	barEighths := cfg.Beat * cfg.Meter
 	pos := 0 // running position in eighth units
+	var starts []int
 	emit := func(n Note) {
 		if barEighths > 0 && pos%barEighths == 0 {
 			n.Velocity = accentDownbeat(n.Velocity)
 		}
+		starts = append(starts, pos)
 		s.Notes = append(s.Notes, n)
 		pos += n.Duration
 	}
@@ -341,6 +369,7 @@ func Build(game *pgn.Game, cfg Config) Score {
 	for _, mv := range game.Moves {
 		emit(noteFor(mv, cfg))
 	}
+	s.Accompaniment = cfg.accompaniment(s.Notes, starts)
 	return s
 }
 
@@ -352,6 +381,92 @@ func accentDownbeat(v int) int {
 		return 127
 	}
 	return v
+}
+
+// accompaniment builds the harmonic foundation: for every bar a low bass note
+// and a sustained chord pad, both rooted on a scale degree drawn from the
+// melody sounding on that bar's downbeat. Because the chord is built from the
+// melody's own note and stacked in scale thirds, it is always consonant and in
+// key, and because it follows the game it stays deterministic.
+func (cfg Config) accompaniment(notes []Note, starts []int) []TimedNote {
+	if !cfg.Harmony || len(notes) == 0 {
+		return nil
+	}
+	barEighths := cfg.Beat * cfg.Meter
+	if barEighths <= 0 {
+		return nil
+	}
+	total := starts[len(starts)-1] + notes[len(notes)-1].Duration
+	steps := scaleSteps[cfg.Scale]
+	base := 12*(cfg.BaseOctave+1) + cfg.Key
+
+	var acc []TimedNote
+	for barStart := 0; barStart < total; barStart += barEighths {
+		root := cfg.chordRoot(notes, starts, barStart, barEighths)
+
+		// Bass: the chord root, two octaves below the melody's base register.
+		bass := base + steps[root%len(steps)] - 24
+		acc = append(acc, TimedNote{
+			Start:    barStart,
+			Duration: barEighths,
+			Pitches:  []int{bass},
+			Velocity: 70,
+			Voice:    AccBass,
+		})
+
+		// Pad: a triad stacked in scale thirds (root, +2, +4 degrees), one
+		// octave below the melody base so it sits under the tune.
+		triad := []int{
+			base + cfg.degreeOffset(root) - 12,
+			base + cfg.degreeOffset(root+2) - 12,
+			base + cfg.degreeOffset(root+4) - 12,
+		}
+		acc = append(acc, TimedNote{
+			Start:    barStart,
+			Duration: barEighths,
+			Pitches:  triad,
+			Velocity: 44,
+			Voice:    AccPad,
+		})
+	}
+	return acc
+}
+
+// chordRoot picks the scale degree to harmonise a bar with: the degree of the
+// melody note sounding on the bar's downbeat (or the first note that starts in
+// the bar), falling back to the tonic when the bar holds no melody.
+func (cfg Config) chordRoot(notes []Note, starts []int, barStart, barEighths int) int {
+	for i, st := range starts {
+		if st <= barStart && barStart < st+notes[i].Duration && len(notes[i].Pitches) > 0 {
+			return cfg.degreeOf(notes[i].Pitches[0])
+		}
+	}
+	for i, st := range starts {
+		if st >= barStart && st < barStart+barEighths && len(notes[i].Pitches) > 0 {
+			return cfg.degreeOf(notes[i].Pitches[0])
+		}
+	}
+	return 0
+}
+
+// degreeOf returns the scale degree (index into the scale) nearest to a pitch,
+// ignoring octave. Used to read a chord root back off the in-key melody.
+func (cfg Config) degreeOf(pitch int) int {
+	steps := scaleSteps[cfg.Scale]
+	tonic := 12*(cfg.BaseOctave+1) + cfg.Key
+	pc := ((pitch-tonic)%12 + 12) % 12
+	best, bestDist := 0, 100
+	for i, s := range steps {
+		d := pc - s
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			best = i
+		}
+	}
+	return best
 }
 
 // degreeOffset converts a scale degree to a semitone offset above the tonic.

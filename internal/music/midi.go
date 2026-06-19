@@ -3,6 +3,7 @@ package music
 import (
 	"bytes"
 	"encoding/binary"
+	"sort"
 )
 
 // MIDI constants.
@@ -13,7 +14,27 @@ const (
 	// Channel 9 is the General MIDI percussion channel; we use it for the
 	// special-move sound effects (captures, checks, mates, castling).
 	percussionChannel = 9
+
+	// Dedicated channels for the accompaniment so it never collides with the
+	// melody instruments (which occupy channels 0..5).
+	bassChannel = 11
+	padChannel  = 12
 )
+
+// gmAccBass and gmAccPad are the General MIDI programs for the accompaniment
+// bass line and chord pad.
+const (
+	gmAccBass = 32 // Acoustic Bass
+	gmAccPad  = 48 // String Ensemble 1
+)
+
+// accompChannel returns the MIDI channel for an accompaniment voice.
+func accompChannel(v AccVoice) byte {
+	if v == AccPad {
+		return padChannel
+	}
+	return bassChannel
+}
 
 // gmProgram gives each Instrument a General MIDI program number (0-based) so a
 // standard synthesiser plays each chess piece with its own voice.
@@ -79,38 +100,67 @@ func (s Score) WriteMIDI() []byte {
 		writeVarLen(&track, 0)
 		track.Write([]byte{0xC0 | midiChannel(inst), gmProgram[inst]})
 	}
+	// Accompaniment programs on their dedicated channels.
+	writeVarLen(&track, 0)
+	track.Write([]byte{0xC0 | bassChannel, gmAccBass})
+	writeVarLen(&track, 0)
+	track.Write([]byte{0xC0 | padChannel, gmAccPad})
 
+	// Collect every note-on/off as an absolute-time event, then sort and emit
+	// them as delta times. This lets the concurrent accompaniment interleave
+	// correctly with the sequential melody.
+	type event struct {
+		tick  uint32
+		order int // note-offs (0) before note-ons (1) at the same tick
+		data  []byte
+	}
+	var events []event
+	add := func(tick uint32, order int, b ...byte) {
+		events = append(events, event{tick, order, append([]byte(nil), b...)})
+	}
+
+	// Melody: each note follows the previous one.
+	var cum uint32
 	for _, n := range s.Notes {
 		ch := midiChannel(n.Instrument)
-		dur := uint32(n.Duration * ticksPerEighth)
+		dur := uint32(n.Duration) * ticksPerEighth
 		vel := byte(clampVelocity(n.Velocity))
-
-		// Gather every simultaneous voice: the move's pitches plus any
-		// percussion effects layered on the percussion channel.
-		type voice struct{ ch, key, vel byte }
-		var voices []voice
+		start, end := cum, cum+dur
 		for _, p := range n.Pitches {
-			voices = append(voices, voice{ch, byte(p), vel})
+			add(start, 1, 0x90|ch, byte(p), vel)
+			add(end, 0, 0x80|ch, byte(p), 0)
 		}
 		for _, hit := range percussionFor(n.Effects) {
-			voices = append(voices, voice{percussionChannel, hit.note, hit.velocity})
+			add(start, 1, 0x90|percussionChannel, hit.note, hit.velocity)
+			add(end, 0, 0x80|percussionChannel, hit.note, 0)
 		}
+		cum = end
+	}
 
-		// Note-on for every voice at the current time (delta 0).
-		for _, v := range voices {
-			writeVarLen(&track, 0)
-			track.Write([]byte{0x90 | v.ch, v.key, v.vel})
+	// Accompaniment: bass and pad at absolute positions on their own channels.
+	for _, a := range s.Accompaniment {
+		ch := accompChannel(a.Voice)
+		start := uint32(a.Start) * ticksPerEighth
+		end := uint32(a.Start+a.Duration) * ticksPerEighth
+		vel := byte(clampVelocity(a.Velocity))
+		for _, p := range a.Pitches {
+			add(start, 1, 0x90|ch, byte(p), vel)
+			add(end, 0, 0x80|ch, byte(p), 0)
 		}
-		// Note-off for every voice after the note's duration. The first off
-		// carries the duration delta; the rest happen simultaneously (delta 0).
-		for i, v := range voices {
-			if i == 0 {
-				writeVarLen(&track, dur)
-			} else {
-				writeVarLen(&track, 0)
-			}
-			track.Write([]byte{0x80 | v.ch, v.key, 0})
+	}
+
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].tick != events[j].tick {
+			return events[i].tick < events[j].tick
 		}
+		return events[i].order < events[j].order
+	})
+
+	var prev uint32
+	for _, e := range events {
+		writeVarLen(&track, e.tick-prev)
+		track.Write(e.data)
+		prev = e.tick
 	}
 
 	// End-of-track meta event.

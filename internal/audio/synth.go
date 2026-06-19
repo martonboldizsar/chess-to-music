@@ -19,18 +19,40 @@ const (
 // RenderWAV synthesises the score to a 16-bit mono WAV file in memory.
 //
 // Each note is rendered as a short additive-synthesis tone (a few harmonics)
-// shaped by an ADSR envelope. Every chess piece has its own timbre, and special
-// moves (captures, checks, mates, castling) mix in a synthesised sound effect.
+// shaped by an ADSR envelope. Every chess piece has its own timbre, special
+// moves (captures, checks, mates, castling) mix in a synthesised sound effect,
+// and any accompaniment (bass + chord pad) is overlaid underneath the melody.
 func RenderWAV(s music.Score) []byte {
 	secondsPerEighth := 30.0 / float64(s.Tempo) // 60 / tempo / 2
 
-	var samples []float64
+	// The melody is sequential: each note follows the previous one.
+	var melody []float64
 	for _, n := range s.Notes {
 		dur := float64(n.Duration) * secondsPerEighth
-		samples = append(samples, renderNote(n, dur)...)
+		melody = append(melody, renderNote(n, dur)...)
 	}
 
-	return encodeWAV(samples)
+	// Size the mix buffer to cover the melody and any accompaniment that runs
+	// past it, then overlay the melody and the accompaniment at their offsets.
+	total := len(melody)
+	for _, a := range s.Accompaniment {
+		if end := int(float64(a.Start+a.Duration) * secondsPerEighth * sampleRate); end > total {
+			total = end
+		}
+	}
+	mix := make([]float64, total)
+	copy(mix, melody)
+	for _, a := range s.Accompaniment {
+		off := int(float64(a.Start) * secondsPerEighth * sampleRate)
+		dur := float64(a.Duration) * secondsPerEighth
+		for i, v := range renderAccompaniment(a, dur) {
+			if off+i < len(mix) {
+				mix[off+i] += v
+			}
+		}
+	}
+
+	return encodeWAV(mix)
 }
 
 // voice describes the timbre of one instrument: the relative amplitude of each
@@ -81,6 +103,67 @@ func renderNote(n music.Note, dur float64) []float64 {
 	// Mix in any special-move sound effects on top of the tone.
 	addEffects(out, n.Effects, dur)
 	return out
+}
+
+// accBassVoice and accPadVoice are the timbres of the accompaniment layers: a
+// rounded low bass and a soft, fuller chord pad. They are deliberately mellow
+// so they support the melody without competing with it.
+var (
+	accBassVoice = voice{harmonics: []float64{1, 0.5, 0.22}}
+	accPadVoice  = voice{harmonics: []float64{1, 0.6, 0.4, 0.25, 0.15}, vibrato: 0.003}
+)
+
+// renderAccompaniment synthesises one bass note or chord-pad event, using a
+// gentle swell so the harmony sits softly underneath the melody.
+func renderAccompaniment(a music.TimedNote, dur float64) []float64 {
+	total := int(dur * sampleRate)
+	if total <= 0 || len(a.Pitches) == 0 {
+		return nil
+	}
+	out := make([]float64, total)
+
+	v := accBassVoice
+	amp := 0.15
+	if a.Voice == music.AccPad {
+		v = accPadVoice
+		amp = 0.09
+	}
+	gain := float64(a.Velocity) / 127.0
+
+	for _, p := range a.Pitches {
+		freq := midiToFreq(p)
+		for i := 0; i < total; i++ {
+			t := float64(i) / sampleRate
+			out[i] += gain * timbre(freq, t, v)
+		}
+	}
+
+	scale := amp
+	if len(a.Pitches) > 1 {
+		scale /= math.Sqrt(float64(len(a.Pitches)))
+	}
+	for i := range out {
+		t := float64(i) / sampleRate
+		out[i] *= scale * padEnvelope(t, dur)
+	}
+	return out
+}
+
+// padEnvelope shapes an accompaniment note: a slow swell in, a full sustain,
+// and a gentle fade so chords blend smoothly from bar to bar.
+func padEnvelope(t, dur float64) float64 {
+	attack := math.Min(0.08, dur*0.25)
+	release := math.Min(0.15, dur*0.3)
+	switch {
+	case t < attack:
+		return t / attack
+	case t < dur-release:
+		return 1
+	case t < dur:
+		return (dur - t) / release
+	default:
+		return 0
+	}
 }
 
 // timbre is an additive harmonic stack with optional vibrato, giving each
