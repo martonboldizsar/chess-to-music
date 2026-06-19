@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"fmt"
 	"image/png"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,20 +95,47 @@ func RenderMP4(score music.Score, plies []board.Ply, positions []board.Position,
 }
 
 // buildFrames computes the per-frame animation specs for the whole game, keeping
-// the cumulative frame count locked to the audio timeline to avoid drift.
+// the cumulative frame count locked to the audio timeline to avoid drift. The
+// opening-motif intro is covered by holding the starting position, and the
+// final position lingers until the audio (melody plus accompaniment) ends.
 func buildFrames(score music.Score, plies []board.Ply, positions []board.Position) []frameSpec {
 	secondsPerEighth := 30.0 / float64(score.Tempo)
 
+	intro := score.IntroNotes
+	if intro > len(score.Notes) {
+		intro = len(score.Notes)
+	}
 	n := len(plies)
-	if len(score.Notes) < n {
-		n = len(score.Notes)
+	if avail := len(score.Notes) - intro; avail < n {
+		n = avail
 	}
 
 	var specs []frameSpec
 	cumTime := 0.0
 	framesDone := 0
+	// hold appends frames of a static board until the cumulative time reaches
+	// endTime, keeping the frame count locked to the audio clock.
+	hold := func(base board.Position, highlights []board.Square, endTime float64) {
+		frameEnd := int(endTime*fps + 0.5)
+		for framesDone < frameEnd {
+			specs = append(specs, frameSpec{base: base, highlights: highlights})
+			framesDone++
+		}
+		cumTime = endTime
+	}
+
+	// Lead-in: hold the starting position while the opening motif plays.
+	if intro > 0 {
+		introTime := 0.0
+		for i := 0; i < intro; i++ {
+			introTime += float64(score.Notes[i].Duration) * secondsPerEighth
+		}
+		hold(positions[0], nil, introTime)
+	}
+
 	for i := 0; i < n; i++ {
-		dur := float64(score.Notes[i].Duration) * secondsPerEighth
+		note := score.Notes[intro+i]
+		dur := float64(note.Duration) * secondsPerEighth
 		endTime := cumTime + dur
 		frameEnd := int(endTime*fps + 0.5)
 		count := frameEnd - framesDone
@@ -165,17 +191,31 @@ func buildFrames(score music.Score, plies []board.Ply, positions []board.Positio
 		framesDone = frameEnd
 	}
 
-	// Hold the final position for a moment after the music ends.
+	// Hold the final position until the audio ends (the accompaniment can ring
+	// on past the last melody note) plus a brief tail so it does not cut off.
 	final := positions[len(positions)-1]
 	var lastHL []board.Square
 	if n > 0 {
 		lastHL = []board.Square{plies[n-1].From.From, plies[n-1].From.To}
 	}
-	tailFrames := int(math.Round(tailHold * float64(fps)))
-	for j := 0; j < tailFrames; j++ {
-		specs = append(specs, frameSpec{base: final, highlights: lastHL})
-	}
+	hold(final, lastHL, audioDuration(score, secondsPerEighth)+tailHold)
 	return specs
+}
+
+// audioDuration returns the length of the rendered audio in seconds: the longer
+// of the sequential melody and any accompaniment that rings on past it.
+func audioDuration(score music.Score, secondsPerEighth float64) float64 {
+	melodyEighths := 0
+	for _, n := range score.Notes {
+		melodyEighths += n.Duration
+	}
+	endEighths := melodyEighths
+	for _, a := range score.Accompaniment {
+		if e := a.Start + a.Duration; e > endEighths {
+			endEighths = e
+		}
+	}
+	return float64(endEighths) * secondsPerEighth
 }
 
 // renderFrames rasterises every frame to a PNG file, using a pool of renderers

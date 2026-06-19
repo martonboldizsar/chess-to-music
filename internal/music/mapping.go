@@ -314,6 +314,7 @@ type Score struct {
 	Opening       string // recognised opening name, if any (for labelling)
 	Tempo         int
 	Notes         []Note      // the sequential melody
+	IntroNotes    int         // how many leading Notes are the opening motif
 	Accompaniment []TimedNote // bass + chord pad played underneath the melody
 	Config        Config
 }
@@ -366,6 +367,7 @@ func Build(game *pgn.Game, cfg Config) Score {
 	for _, n := range intro {
 		emit(n)
 	}
+	s.IntroNotes = len(intro)
 	for _, mv := range game.Moves {
 		emit(noteFor(mv, cfg))
 	}
