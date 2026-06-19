@@ -39,5 +39,6 @@ COPY --from=backend /out/server /app/server
 USER app
 EXPOSE 8080
 # DATABASE_URL is optional: without it the game library is simply disabled.
+# The server binds to $PORT when set (e.g. on Render) and otherwise to :8080,
+# so no -addr flag is hard-coded here.
 ENTRYPOINT ["/app/server"]
-CMD ["-addr", ":8080"]

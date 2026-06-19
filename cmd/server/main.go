@@ -56,9 +56,20 @@ type generateRequest struct {
 }
 
 func main() {
-	addr := flag.String("addr", ":8080", "address to listen on")
+	addr := flag.String("addr", "", "address to listen on (defaults to $PORT, then :8080)")
 	dbURL := flag.String("db", "", "PostgreSQL connection URL (defaults to $DATABASE_URL or the docker-compose service)")
 	flag.Parse()
+
+	// Resolve the listen address. Hosting platforms such as Render inject the
+	// port to bind to via $PORT; locally we fall back to :8080.
+	listenAddr := *addr
+	if listenAddr == "" {
+		if port := os.Getenv("PORT"); port != "" {
+			listenAddr = ":" + port
+		} else {
+			listenAddr = ":8080"
+		}
+	}
 
 	srv := &server{}
 
@@ -104,8 +115,8 @@ func main() {
 	}
 	mux.Handle("/", http.FileServer(http.FS(dist)))
 
-	log.Printf("chess-to-music server listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	log.Printf("chess-to-music server listening on %s", listenAddr)
+	if err := http.ListenAndServe(listenAddr, mux); err != nil {
 		log.Fatal(err)
 	}
 }

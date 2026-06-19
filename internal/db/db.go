@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -34,8 +36,23 @@ type Store struct {
 }
 
 // Open connects to PostgreSQL using the given URL and verifies the connection.
+//
+// When the URL points at a transaction-mode connection pooler (such as
+// Supabase's pooler on port 6543, or any host you flag with DB_POOLER=true),
+// prepared statements are disabled: poolers multiplex many clients over a few
+// server connections, so cached prepared statements would clash. Direct
+// connections keep the default (faster) extended-query protocol.
 func Open(ctx context.Context, url string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("parsing database URL: %w", err)
+	}
+	if poolerMode(url) {
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		cfg.ConnConfig.StatementCacheCapacity = 0
+		cfg.ConnConfig.DescriptionCacheCapacity = 0
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to database: %w", err)
 	}
@@ -44,6 +61,17 @@ func Open(ctx context.Context, url string) (*Store, error) {
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 	return &Store{pool: pool}, nil
+}
+
+// poolerMode reports whether the connection should run in PgBouncer-compatible
+// mode (no prepared statements). It is enabled explicitly via the DB_POOLER
+// environment variable, or auto-detected for Supabase's transaction pooler.
+func poolerMode(url string) bool {
+	switch strings.ToLower(os.Getenv("DB_POOLER")) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return strings.Contains(url, "pooler.supabase.com") || strings.Contains(url, ":6543")
 }
 
 // Close releases the database connection pool.

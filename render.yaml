@@ -1,0 +1,26 @@
+# Render Blueprint for chess-to-music.
+#
+# Deploy by pointing Render at this repo (New + > Blueprint), or create a single
+# Web Service manually with the same settings. The Docker image already bundles
+# ffmpeg (needed for MP3 and the animated MP4) and the built Svelte frontend.
+#
+# Set DATABASE_URL to your Supabase connection string (see the README's
+# "Deploying to the web" section). DB_POOLER=true makes pgx PgBouncer-friendly,
+# which is required when you use Supabase's transaction pooler.
+services:
+  - type: web
+    name: chess-to-music
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /api/options
+    envVars:
+      # Supabase Postgres connection string. Marked sync:false so the value is
+      # entered (and kept secret) in the Render dashboard, not committed here.
+      - key: DATABASE_URL
+        sync: false
+      # Disable prepared statements for Supabase's transaction pooler.
+      - key: DB_POOLER
+        value: "true"
+

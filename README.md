@@ -39,6 +39,9 @@ played, or converted in almost any music tool.
 - [Bun](https://bun.sh) to build the web frontend.
 - (Optional) Docker + PostgreSQL for the saved-game library. The server runs
   fine without it — the library features are simply disabled.
+- (Optional) A [Render](https://render.com) + [Supabase](https://supabase.com)
+  account to publish the app online — see
+  [Deploying to the web](#deploying-to-the-web-render--supabase).
 
 ## Build
 
@@ -137,6 +140,52 @@ is unreachable, the server logs a warning and disables only the library.
 
 Set `format` to `mp4` (with `boardTheme` of `lichess` or `chesscom`) to get the
 animated board video; any other value returns audio.
+
+## Deploying to the web (Render + Supabase)
+
+Running locally with Docker Compose stays the default for development and
+testing. To publish the app, host the container on [Render](https://render.com)
+and use [Supabase](https://supabase.com) for the Postgres game library. Nothing
+in the local workflow changes — both are driven entirely by environment
+variables (`DATABASE_URL`, `DB_POOLER`, and Render's injected `PORT`).
+
+**1. Create the Supabase database**
+
+1. Create a new project at [supabase.com](https://supabase.com) and pick a
+   database password.
+2. In the dashboard go to **Project Settings → Database → Connection string**
+   and copy the **Transaction pooler** URI (host ends in
+   `…pooler.supabase.com`, port `6543`). It looks like:
+
+   ```
+   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require
+   ```
+
+   Replace `<password>` with your database password. Keep `sslmode=require`.
+3. No manual SQL is needed: the server creates its schema and seeds the
+   built-in games automatically on first start.
+
+**2. Deploy the web service on Render**
+
+- **Blueprint (one click):** the repo ships a [`render.yaml`](render.yaml).
+  In Render choose **New + → Blueprint**, connect this repository, and Render
+  reads the service definition. You'll be prompted for `DATABASE_URL`; paste the
+  Supabase pooler URI from step 1.
+- **Manual:** create a **New + → Web Service**, connect the repo, and select
+  **Docker** as the runtime (the [`Dockerfile`](Dockerfile) bundles ffmpeg and
+  the built frontend). Then add the environment variables below.
+
+| Variable       | Value                                              | Notes                                                              |
+| -------------- | -------------------------------------------------- | ------------------------------------------------------------------ |
+| `DATABASE_URL` | the Supabase **transaction pooler** URI            | Mark it secret; required for the game library                      |
+| `DB_POOLER`    | `true`                                             | Disables prepared statements so pgx works through the pooler       |
+| `PORT`         | _(set automatically by Render)_                    | The server binds to `$PORT`; no `-addr` flag is needed             |
+
+Render uses `/api/options` as the health check. The free plan works but cold
+starts; the container needs ~512 MB to render video comfortably.
+
+> The game library is optional. If you omit `DATABASE_URL` the app still runs and
+> generates audio/video — it just hides the saved-games dropdown.
 
 ## How moves become music
 
