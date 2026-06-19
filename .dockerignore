@@ -1,0 +1,23 @@
+# Keep the Docker build context small and reproducible.
+.git
+.gitignore
+.github
+
+# Build artifacts (the image rebuilds these itself)
+bin/
+web/node_modules/
+web/dist/
+
+# Local generated audio/notation output
+game.abc
+game.mid
+game.wav
+game.mp3
+*.mp3
+*.wav
+*.abc
+*.mid
+
+# Editor / OS cruft
+.DS_Store
+*.log

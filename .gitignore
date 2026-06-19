@@ -1,0 +1,22 @@
+# Build output
+/bin/
+
+# Generated audio/notation artifacts
+game.abc
+game.mid
+game.midi
+game.wav
+game.mp3
+*.abc
+*.mid
+*.midi
+*.wav
+*.mp3
+
+# Frontend build artifacts
+web/node_modules/
+web/dist/
+
+# Logs and OS files
+*.log
+.DS_Store
