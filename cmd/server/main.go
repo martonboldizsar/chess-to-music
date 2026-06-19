@@ -17,9 +17,12 @@ import (
 	"time"
 
 	"chess-to-music/internal/audio"
+	"chess-to-music/internal/board"
 	"chess-to-music/internal/db"
 	"chess-to-music/internal/music"
 	"chess-to-music/internal/pgn"
+	"chess-to-music/internal/render"
+	"chess-to-music/internal/video"
 	"chess-to-music/web"
 )
 
@@ -48,6 +51,8 @@ type generateRequest struct {
 	Tempo       int               `json:"tempo"`
 	BaseOctave  int               `json:"baseOctave"`
 	Instruments map[string]string `json:"instruments"` // piece name -> instrument name
+	Format      string            `json:"format"`      // "mp3" (audio) or "mp4" (animated video)
+	BoardTheme  string            `json:"boardTheme"`  // "lichess" or "chesscom" (mp4 only)
 }
 
 func main() {
@@ -108,22 +113,36 @@ func main() {
 // handleOptions reports the available pieces and instruments so the UI can
 // build its dropdowns without hard-coding the lists.
 func handleOptions(w http.ResponseWriter, r *http.Request) {
+	type boardTheme struct {
+		Name  string `json:"name"`
+		Label string `json:"label"`
+	}
 	type option struct {
 		Pieces      []string          `json:"pieces"`
 		Instruments []string          `json:"instruments"`
 		Defaults    map[string]string `json:"defaults"`
 		HasMP3      bool              `json:"hasMp3"`
+		HasVideo    bool              `json:"hasVideo"`
+		BoardThemes []boardTheme      `json:"boardThemes"`
 	}
 	defaults := map[string]string{}
 	cfg := music.DefaultConfig()
 	for name, piece := range pieceByName {
 		defaults[name] = cfg.InstrumentForPiece(piece).String()
 	}
+	var themes []boardTheme
+	for _, name := range render.ThemeNames() {
+		if t, ok := render.ThemeByName(name); ok {
+			themes = append(themes, boardTheme{Name: t.Name, Label: t.Label})
+		}
+	}
 	writeJSON(w, http.StatusOK, option{
 		Pieces:      []string{"pawn", "knight", "bishop", "rook", "queen", "king"},
 		Instruments: music.InstrumentNames(),
 		Defaults:    defaults,
 		HasMP3:      audio.HasFFmpeg(),
+		HasVideo:    video.Available(),
+		BoardThemes: themes,
 	})
 }
 
@@ -177,6 +196,12 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	score := music.Build(game, cfg)
 	wav := audio.RenderWAV(score)
 
+	// MP4: animate the board in sync with the music.
+	if strings.EqualFold(req.Format, "mp4") {
+		generateVideo(w, game, score, wav, req.BoardTheme)
+		return
+	}
+
 	mp3, err := audio.WAVToMP3Bytes(wav)
 	switch {
 	case err == nil:
@@ -191,6 +216,38 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("audio conversion failed: %v", err))
 	}
+}
+
+// generateVideo replays the game on a board, renders the animation in the
+// chosen theme and returns an MP4 with the music as its soundtrack.
+func generateVideo(w http.ResponseWriter, game *pgn.Game, score music.Score, wav []byte, themeName string) {
+	if !video.Available() {
+		writeError(w, http.StatusServiceUnavailable, "video generation requires ffmpeg, which is not installed on the server")
+		return
+	}
+	if themeName == "" {
+		themeName = "lichess"
+	}
+	theme, ok := render.ThemeByName(themeName)
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown board theme %q", themeName))
+		return
+	}
+
+	positions, plies, err := board.Replay(game)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("could not replay game: %v", err))
+		return
+	}
+
+	mp4, err := video.RenderMP4(score, plies, positions, theme, wav)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("video generation failed: %v", err))
+		return
+	}
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Content-Disposition", `inline; filename="chess-music.mp4"`)
+	w.Write(mp4)
 }
 
 // handleListGames returns the library of saved games (without PGN bodies).
@@ -235,8 +292,9 @@ func (s *server) handleGetGame(w http.ResponseWriter, r *http.Request) {
 
 // saveGameRequest is the JSON body accepted by POST /api/games.
 type saveGameRequest struct {
-	Title string `json:"title"`
-	PGN   string `json:"pgn"`
+	Title      string `json:"title"`
+	PGN        string `json:"pgn"`
+	BoardTheme string `json:"boardTheme"`
 }
 
 // handleSaveGame validates and stores a user-supplied game.
@@ -267,13 +325,23 @@ func (s *server) handleSaveGame(w http.ResponseWriter, r *http.Request) {
 		title = game.Title()
 	}
 
+	theme := req.BoardTheme
+	if theme == "" {
+		theme = "lichess"
+	}
+	if _, ok := render.ThemeByName(theme); !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown board theme %q", theme))
+		return
+	}
+
 	saved, err := s.store.SaveGame(r.Context(), db.Game{
-		Title:   title,
-		White:   game.Tags["White"],
-		Black:   game.Tags["Black"],
-		Event:   game.Tags["Event"],
-		PGN:     req.PGN,
-		Builtin: false,
+		Title:      title,
+		White:      game.Tags["White"],
+		Black:      game.Tags["Black"],
+		Event:      game.Tags["Event"],
+		PGN:        req.PGN,
+		Builtin:    false,
+		BoardTheme: theme,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("could not save game: %v", err))

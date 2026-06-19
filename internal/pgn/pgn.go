@@ -58,7 +58,9 @@ type Move struct {
 	Color     Color
 	Piece     Piece
 	File      int // destination file, 0 = 'a' .. 7 = 'h' (-1 when not applicable)
-	Rank      int // destination rank, 0 = '1' .. 7 = '8' (-1 when not applicable)
+	Rank      int // destination rank, 0 = '1' .. 7 = '7' (-1 when not applicable)
+	FromFile  int // source-file disambiguation hint, -1 when absent
+	FromRank  int // source-rank disambiguation hint, -1 when absent
 	Capture   bool
 	Check     bool
 	Mate      bool
@@ -250,7 +252,7 @@ func parseSAN(tok string, color Color) (Move, bool) {
 		return Move{}, false
 	}
 
-	mv := Move{SAN: tok, Color: color, File: -1, Rank: -1}
+	mv := Move{SAN: tok, Color: color, File: -1, Rank: -1, FromFile: -1, FromRank: -1}
 
 	// Castling branch.
 	if m[1] != "" {
@@ -271,6 +273,12 @@ func parseSAN(tok string, color Color) (Move, bool) {
 		mv.Piece = Pawn
 	} else {
 		mv.Piece = Piece(pieceStr[0])
+	}
+	if m[4] != "" {
+		mv.FromFile = int(m[4][0] - 'a')
+	}
+	if m[5] != "" {
+		mv.FromRank = int(m[5][0] - '1')
 	}
 	mv.Capture = m[6] == "x"
 	mv.File = int(m[7][0] - 'a')

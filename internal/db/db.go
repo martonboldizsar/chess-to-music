@@ -17,14 +17,15 @@ var ErrNotFound = errors.New("game not found")
 
 // Game is a stored chess game and its metadata.
 type Game struct {
-	ID        int64     `json:"id"`
-	Title     string    `json:"title"`
-	White     string    `json:"white"`
-	Black     string    `json:"black"`
-	Event     string    `json:"event"`
-	PGN       string    `json:"pgn"`
-	Builtin   bool      `json:"builtin"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         int64     `json:"id"`
+	Title      string    `json:"title"`
+	White      string    `json:"white"`
+	Black      string    `json:"black"`
+	Event      string    `json:"event"`
+	PGN        string    `json:"pgn"`
+	Builtin    bool      `json:"builtin"`
+	BoardTheme string    `json:"boardTheme"` // preferred board view for the video (lichess/chesscom)
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // Store is a handle to the games database.
@@ -52,15 +53,18 @@ func (s *Store) Close() {
 
 const schema = `
 CREATE TABLE IF NOT EXISTS games (
-    id         BIGSERIAL PRIMARY KEY,
-    title      TEXT NOT NULL,
-    white      TEXT NOT NULL DEFAULT '',
-    black      TEXT NOT NULL DEFAULT '',
-    event      TEXT NOT NULL DEFAULT '',
-    pgn        TEXT NOT NULL,
-    builtin    BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);`
+    id          BIGSERIAL PRIMARY KEY,
+    title       TEXT NOT NULL,
+    white       TEXT NOT NULL DEFAULT '',
+    black       TEXT NOT NULL DEFAULT '',
+    event       TEXT NOT NULL DEFAULT '',
+    pgn         TEXT NOT NULL,
+    builtin     BOOLEAN NOT NULL DEFAULT FALSE,
+    board_theme TEXT NOT NULL DEFAULT 'lichess',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Add the column on databases created before board themes existed.
+ALTER TABLE games ADD COLUMN IF NOT EXISTS board_theme TEXT NOT NULL DEFAULT 'lichess';`
 
 // Migrate creates the games table if it does not already exist.
 func (s *Store) Migrate(ctx context.Context) error {
@@ -75,7 +79,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 // list lightweight; load it with GetGame.
 func (s *Store) ListGames(ctx context.Context) ([]Game, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, title, white, black, event, builtin, created_at
+		SELECT id, title, white, black, event, builtin, board_theme, created_at
 		FROM games
 		ORDER BY builtin DESC, created_at DESC, id DESC`)
 	if err != nil {
@@ -86,7 +90,7 @@ func (s *Store) ListGames(ctx context.Context) ([]Game, error) {
 	var games []Game
 	for rows.Next() {
 		var g Game
-		if err := rows.Scan(&g.ID, &g.Title, &g.White, &g.Black, &g.Event, &g.Builtin, &g.CreatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Title, &g.White, &g.Black, &g.Event, &g.Builtin, &g.BoardTheme, &g.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scanning game: %w", err)
 		}
 		games = append(games, g)
@@ -98,9 +102,9 @@ func (s *Store) ListGames(ctx context.Context) ([]Game, error) {
 func (s *Store) GetGame(ctx context.Context, id int64) (Game, error) {
 	var g Game
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, title, white, black, event, pgn, builtin, created_at
+		SELECT id, title, white, black, event, pgn, builtin, board_theme, created_at
 		FROM games WHERE id = $1`, id).
-		Scan(&g.ID, &g.Title, &g.White, &g.Black, &g.Event, &g.PGN, &g.Builtin, &g.CreatedAt)
+		Scan(&g.ID, &g.Title, &g.White, &g.Black, &g.Event, &g.PGN, &g.Builtin, &g.BoardTheme, &g.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Game{}, ErrNotFound
 	}
@@ -112,11 +116,14 @@ func (s *Store) GetGame(ctx context.Context, id int64) (Game, error) {
 
 // SaveGame inserts a new user game and returns it with its assigned ID.
 func (s *Store) SaveGame(ctx context.Context, g Game) (Game, error) {
+	if g.BoardTheme == "" {
+		g.BoardTheme = "lichess"
+	}
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO games (title, white, black, event, pgn, builtin)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO games (title, white, black, event, pgn, builtin, board_theme)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at`,
-		g.Title, g.White, g.Black, g.Event, g.PGN, g.Builtin).
+		g.Title, g.White, g.Black, g.Event, g.PGN, g.Builtin, g.BoardTheme).
 		Scan(&g.ID, &g.CreatedAt)
 	if err != nil {
 		return Game{}, fmt.Errorf("saving game: %w", err)

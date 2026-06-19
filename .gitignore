@@ -7,11 +7,13 @@ game.mid
 game.midi
 game.wav
 game.mp3
+game.mp4
 *.abc
 *.mid
 *.midi
 *.wav
 *.mp3
+*.mp4
 
 # Frontend build artifacts
 web/node_modules/

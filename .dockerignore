@@ -13,8 +13,10 @@ game.abc
 game.mid
 game.wav
 game.mp3
+game.mp4
 *.mp3
 *.wav
+*.mp4
 *.abc
 *.mid
 

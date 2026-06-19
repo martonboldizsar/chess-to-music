@@ -12,6 +12,7 @@ type seedGame struct {
 	White string
 	Black string
 	Event string
+	Theme string // preferred board view for the video (lichess/chesscom)
 	PGN   string
 }
 
@@ -70,6 +71,7 @@ var seedGames = []seedGame{
 		White: "Donald Byrne",
 		Black: "Bobby Fischer",
 		Event: "New York 1956",
+		Theme: "chesscom",
 		PGN: `[Event "Third Rosenwald Trophy"]
 [Site "New York"]
 [Date "1956.10.17"]
@@ -90,6 +92,7 @@ var seedGames = []seedGame{
 		White: "Garry Kasparov",
 		Black: "Veselin Topalov",
 		Event: "Wijk aan Zee 1999",
+		Theme: "chesscom",
 		PGN: `[Event "Hoogovens"]
 [Site "Wijk aan Zee"]
 [Date "1999.01.20"]
@@ -110,6 +113,7 @@ var seedGames = []seedGame{
 		White: "Bobby Fischer",
 		Black: "Boris Spassky",
 		Event: "World Championship 1972",
+		Theme: "chesscom",
 		PGN: `[Event "World Championship 28th"]
 [Site "Reykjavik"]
 [Date "1972.07.23"]
@@ -138,13 +142,18 @@ func (s *Store) Seed(ctx context.Context) error {
 		return nil
 	}
 	for _, g := range seedGames {
+		theme := g.Theme
+		if theme == "" {
+			theme = "lichess"
+		}
 		if _, err := s.SaveGame(ctx, Game{
-			Title:   g.Title,
-			White:   g.White,
-			Black:   g.Black,
-			Event:   g.Event,
-			PGN:     g.PGN,
-			Builtin: true,
+			Title:      g.Title,
+			White:      g.White,
+			Black:      g.Black,
+			Event:      g.Event,
+			PGN:        g.PGN,
+			Builtin:    true,
+			BoardTheme: theme,
 		}); err != nil {
 			return fmt.Errorf("seeding %q: %w", g.Title, err)
 		}

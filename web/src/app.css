@@ -181,6 +181,15 @@ button:disabled {
     margin-bottom: 0.9rem;
 }
 
+.result-video {
+    width: 100%;
+    max-width: 480px;
+    display: block;
+    margin: 0 auto 0.9rem;
+    border-radius: 8px;
+    background: #000;
+}
+
 .error {
     color: var(--danger);
     background: rgba(255, 107, 107, 0.08);

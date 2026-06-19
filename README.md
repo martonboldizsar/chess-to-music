@@ -10,9 +10,13 @@ note length, and annotations (captures, checks, checkmate) control loudness.
 White and Black are placed in different registers and given different
 instruments so you can hear the two players converse.
 
+It can also render an **animated MP4** in which the pieces slide across the
+board in time with the music, in either a **Lichess** or **Chess.com** board
+view.
+
 ## Outputs
 
-For an input game, the tool writes four files (using `-out <prefix>`):
+For an input game, the tool writes these files (using `-out <prefix>`):
 
 | File            | Format                              | Purpose                                        |
 | --------------- | ----------------------------------- | ---------------------------------------------- |
@@ -20,6 +24,7 @@ For an input game, the tool writes four files (using `-out <prefix>`):
 | `<prefix>.mid`  | Standard MIDI File (format 0)       | Machine-readable music interchange             |
 | `<prefix>.wav`  | 16-bit PCM WAV                      | Synthesised audio                              |
 | `<prefix>.mp3`  | MP3                                 | Audio as MP3 (requires `ffmpeg`)               |
+| `<prefix>.mp4`  | H.264 + AAC video                   | Animated board synced to the music (`-video`, requires `ffmpeg`) |
 
 ABC notation and Standard MIDI Files are the two most widely used standards for
 representing notes as text/data, so the rendering can be opened, viewed,
@@ -28,9 +33,9 @@ played, or converted in almost any music tool.
 ## Requirements
 
 - Go 1.24+
-- [`ffmpeg`](https://ffmpeg.org) on your `PATH` for MP3 output (optional — the
-  WAV file is always written; MP3 is skipped with a message if `ffmpeg` is
-  missing).
+- [`ffmpeg`](https://ffmpeg.org) on your `PATH` for MP3 and MP4 output (optional
+  for audio — the WAV file is always written and MP3 is skipped with a message if
+  `ffmpeg` is missing; required for the animated video).
 - [Bun](https://bun.sh) to build the web frontend.
 - (Optional) Docker + PostgreSQL for the saved-game library. The server runs
   fine without it — the library features are simply disabled.
@@ -49,25 +54,31 @@ go run ./cmd/chess2music -in testdata/sample.pgn -out game
 
 # From standard input:
 pbpaste | go run ./cmd/chess2music -out game
+
+# Also render an animated Chess.com-style board video:
+go run ./cmd/chess2music -in testdata/sample.pgn -out game -video -view chesscom
 ```
 
 ### Flags
 
-| Flag           | Default | Description                                                    |
-| -------------- | ------- | ------------------------------------------------------------- |
-| `-in`          | stdin   | Input PGN file path                                           |
-| `-out`         | `game`  | Output file prefix                                            |
-| `-tempo`       | `120`   | Playback tempo in quarter-note beats per minute               |
-| `-base-octave` | `4`     | Base octave for White's pitches (octave 4 contains middle C)  |
-| `-no-audio`    | `false` | Skip WAV/MP3 rendering (only write `.abc` and `.mid`)         |
+| Flag           | Default   | Description                                                    |
+| -------------- | --------- | ------------------------------------------------------------- |
+| `-in`          | stdin     | Input PGN file path                                           |
+| `-out`         | `game`    | Output file prefix                                            |
+| `-tempo`       | `120`     | Playback tempo in quarter-note beats per minute               |
+| `-base-octave` | `4`       | Base octave for White's pitches (octave 4 contains middle C)  |
+| `-no-audio`    | `false`   | Skip WAV/MP3 rendering (only write `.abc` and `.mid`)         |
+| `-video`       | `false`   | Also render an animated board video (`<prefix>.mp4`, needs `ffmpeg`) |
+| `-view`        | `lichess` | Board view for the video: `lichess` or `chesscom`             |
 
 Only the first game in a PGN file is rendered.
 
 ## Web UI
 
 A small Svelte 5 frontend (built with [Bun](https://bun.sh)) lets you paste or
-upload a game, pick which piece plays which instrument, generate the music, then
-play it in the browser or download the MP3.
+upload a game, pick which piece plays which instrument, and choose the output:
+either an **MP3** to play/download, or an **animated MP4** of the board in a
+Lichess or Chess.com view, synced to the music.
 
 The quickest way to run the whole stack (app + Postgres) is Docker:
 
@@ -116,13 +127,16 @@ is unreachable, the server logs a warning and disables only the library.
 
 ### HTTP API
 
-| Endpoint          | Method | Description                                                        |
-| ----------------- | ------ | ------------------------------------------------------------------ |
-| `/api/options`    | GET    | Lists pieces, instruments and the default mapping                  |
-| `/api/generate`   | POST   | JSON `{pgn, tempo, baseOctave, instruments}` → MP3 (or WAV) audio  |
-| `/api/games`      | GET    | Lists saved games (built-in library first), without PGN bodies     |
-| `/api/games/{id}` | GET    | Returns one saved game including its PGN                            |
-| `/api/games`      | POST   | JSON `{title, pgn}` → saves a game and returns it                  |
+| Endpoint          | Method | Description                                                                                  |
+| ----------------- | ------ | -------------------------------------------------------------------------------------------- |
+| `/api/options`    | GET    | Lists pieces, instruments, the default mapping, and the available board views                |
+| `/api/generate`   | POST   | JSON `{pgn, tempo, baseOctave, instruments, format, boardTheme}` → MP3/WAV audio or MP4 video |
+| `/api/games`      | GET    | Lists saved games (built-in library first), without PGN bodies                               |
+| `/api/games/{id}` | GET    | Returns one saved game including its PGN                                                      |
+| `/api/games`      | POST   | JSON `{title, pgn, boardTheme}` → saves a game and returns it                                 |
+
+Set `format` to `mp4` (with `boardTheme` of `lichess` or `chesscom`) to get the
+animated board video; any other value returns audio.
 
 ## How moves become music
 
@@ -142,14 +156,32 @@ is unreachable, the server logs a warning and disables only the library.
 - **Castling** — rendered as a major triad (a small "fanfare").
 - **Promotion** — the promoted pawn jumps up an octave.
 
+## Animated video
+
+Choosing the **MP4** output (the web UI's *Output* section, or `-video` on the
+CLI) replays the game on a real 8×8 board and animates each piece sliding from
+its source square to its destination in time with the music. The last move is
+highlighted, and you can pick between two board views:
+
+- **Lichess** — the classic brown/cream board.
+- **Chess.com** — the green/ivory board.
+
+The move source squares (which PGN/SAN does not state explicitly) are
+reconstructed by replaying the game, including disambiguation, pins, castling,
+en passant and promotion. Pieces are drawn from the Unicode chess glyphs of an
+embedded font, and frames are muxed with the audio by `ffmpeg` (H.264 + AAC).
+
 ## Project layout
 
 ```
 cmd/chess2music     command-line entry point
 cmd/server          HTTP server + JSON API for the web UI
 internal/pgn        PGN/SAN parser
+internal/board      replays a game to reconstruct every board position
 internal/music      move-to-note mapping, ABC and MIDI writers
 internal/audio      WAV synthesis and MP3 conversion
+internal/render     board/piece image rendering (Lichess & Chess.com views)
+internal/video      animated MP4 generation (frames + ffmpeg)
 internal/db         PostgreSQL game library (pgx) + seed games
 web                 Svelte 5 frontend (built with Bun), embedded by the server
 Dockerfile          multi-stage build (Bun + Go) producing the runtime image
@@ -158,6 +190,7 @@ Makefile            common build/run/test/docker tasks
 testdata            a sample PGN (Anderssen's "Immortal Game")
 ```
 
-The core CLI has **no external Go dependencies** — the PGN parser, ABC writer,
-MIDI writer and audio synthesiser are all self-contained. The optional game
-library uses the `pgx` PostgreSQL driver.
+The core CLI has **no external Go dependencies** for the music itself — the PGN
+parser, ABC writer, MIDI writer and audio synthesiser are all self-contained.
+The board video uses `golang.org/x/image` for font rendering, and the optional
+game library uses the `pgx` PostgreSQL driver.

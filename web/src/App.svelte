@@ -23,11 +23,17 @@
     let instruments = $state([]);
     let mapping = $state({}); // piece -> instrument
     let hasMp3 = $state(true);
+    let hasVideo = $state(true);
+    let boardThemes = $state([]); // [{ name, label }]
+
+    // Output options.
+    let outputFormat = $state("mp3"); // "mp3" (audio) or "mp4" (animated video)
+    let boardTheme = $state("lichess"); // board view for the video
 
     let loading = $state(false);
     let error = $state("");
-    let audioUrl = $state("");
-    let audioType = $state("audio/mpeg");
+    let mediaUrl = $state("");
+    let mediaType = $state("audio/mpeg");
     let fileInput;
 
     // Game library (PostgreSQL-backed).
@@ -60,6 +66,15 @@
             instruments = data.instruments;
             mapping = { ...data.defaults };
             hasMp3 = data.hasMp3;
+            hasVideo = data.hasVideo;
+            boardThemes = data.boardThemes ?? [];
+            if (
+                boardThemes.length &&
+                !boardThemes.some((t) => t.name === boardTheme)
+            ) {
+                boardTheme = boardThemes[0].name;
+            }
+            if (!hasVideo) outputFormat = "mp3";
         } catch (e) {
             error = `Could not load options: ${e.message}`;
         }
@@ -92,6 +107,7 @@
             if (!res.ok) throw new Error(`could not load game (${res.status})`);
             const game = await res.json();
             pgn = game.pgn;
+            if (game.boardTheme) boardTheme = game.boardTheme;
         } catch (e) {
             error = e.message;
         }
@@ -106,7 +122,7 @@
             const res = await fetch("/api/games", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ title: saveTitle, pgn }),
+                body: JSON.stringify({ title: saveTitle, pgn, boardTheme }),
             });
             if (!res.ok) {
                 let msg = `Save failed (${res.status})`;
@@ -144,9 +160,9 @@
     async function generate() {
         error = "";
         loading = true;
-        if (audioUrl) {
-            URL.revokeObjectURL(audioUrl);
-            audioUrl = "";
+        if (mediaUrl) {
+            URL.revokeObjectURL(mediaUrl);
+            mediaUrl = "";
         }
         try {
             const res = await fetch("/api/generate", {
@@ -157,6 +173,8 @@
                     tempo: Number(tempo),
                     baseOctave: Number(baseOctave),
                     instruments: mapping,
+                    format: outputFormat,
+                    boardTheme,
                 }),
             });
             if (!res.ok) {
@@ -170,8 +188,8 @@
                 throw new Error(msg);
             }
             const blob = await res.blob();
-            audioType = blob.type || "audio/mpeg";
-            audioUrl = URL.createObjectURL(blob);
+            mediaType = blob.type || "audio/mpeg";
+            mediaUrl = URL.createObjectURL(blob);
         } catch (e) {
             error = e.message;
         } finally {
@@ -179,8 +197,16 @@
         }
     }
 
+    const isVideo = $derived(mediaType.includes("mp4"));
     const downloadName = $derived(
-        audioType.includes("wav") ? "chess-music.wav" : "chess-music.mp3",
+        mediaType.includes("mp4")
+            ? "chess-music.mp4"
+            : mediaType.includes("wav")
+              ? "chess-music.wav"
+              : "chess-music.mp3",
+    );
+    const downloadLabel = $derived(
+        downloadName.slice(downloadName.lastIndexOf(".") + 1).toUpperCase(),
     );
 </script>
 
@@ -294,36 +320,75 @@
     </section>
 
     <section class="panel">
-        <h2>3. Generate</h2>
-        <div class="actions">
+        <h2>3. Output</h2>
+        <div class="grid">
+            <div class="field">
+                <label for="format">Format</label>
+                <select id="format" bind:value={outputFormat}>
+                    <option value="mp3">Audio (MP3)</option>
+                    <option value="mp4" disabled={!hasVideo}>
+                        Animated video (MP4)
+                    </option>
+                </select>
+            </div>
+            {#if outputFormat === "mp4"}
+                <div class="field">
+                    <label for="view">Board view</label>
+                    <select id="view" bind:value={boardTheme}>
+                        {#each boardThemes as t (t.name)}
+                            <option value={t.name}>{t.label}</option>
+                        {/each}
+                    </select>
+                </div>
+            {/if}
+        </div>
+
+        <div class="actions" style="margin-top:1rem">
             <button
                 class="btn-primary"
                 onclick={generate}
                 disabled={loading || !pgn.trim()}
             >
-                {#if loading}<span class="spinner"
-                    ></span>Generating…{:else}Generate music{/if}
+                {#if loading}<span class="spinner"></span>{outputFormat ===
+                    "mp4"
+                        ? "Rendering video…"
+                        : "Generating…"}{:else}{outputFormat === "mp4"
+                        ? "Generate video"
+                        : "Generate music"}{/if}
             </button>
             {#if !hasMp3}
                 <span class="hint"
                     >ffmpeg not found on the server — output will be WAV.</span
                 >
             {/if}
+            {#if !hasVideo}
+                <span class="hint"
+                    >Video needs ffmpeg on the server — MP4 is disabled.</span
+                >
+            {/if}
         </div>
+
+        {#if outputFormat === "mp4"}
+            <p class="hint">
+                The pieces slide across the board in time with the music. Longer
+                games take a little longer to render.
+            </p>
+        {/if}
 
         {#if error}
             <p class="error" style="margin-top:1rem">{error}</p>
         {/if}
 
-        {#if audioUrl}
+        {#if mediaUrl}
             <div class="result" style="margin-top:1.25rem">
-                <audio controls src={audioUrl}></audio>
-                <a class="download" href={audioUrl} download={downloadName}>
-                    <button class="btn-ghost"
-                        >Download {downloadName.endsWith("mp3")
-                            ? "MP3"
-                            : "WAV"}</button
-                    >
+                {#if isVideo}
+                    <!-- svelte-ignore a11y_media_has_caption -->
+                    <video controls src={mediaUrl} class="result-video"></video>
+                {:else}
+                    <audio controls src={mediaUrl}></audio>
+                {/if}
+                <a class="download" href={mediaUrl} download={downloadName}>
+                    <button class="btn-ghost">Download {downloadLabel}</button>
                 </a>
             </div>
         {/if}
