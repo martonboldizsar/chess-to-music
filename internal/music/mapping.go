@@ -95,6 +95,13 @@ type Config struct {
 	// Key is the tonic pitch class (0 = C .. 11 = B). A negative value means
 	// "derive a key from the game" so each game gets its own recognisable key.
 	Key int
+	// Beat is the length of one beat in eighth-note units (2 = a quarter-note
+	// pulse). Every move is quantized to whole beats so the piece keeps a
+	// steady, foot-tapping meter instead of drifting rhythmically.
+	Beat int
+	// Meter is the number of beats per bar (4 = common time). It groups moves
+	// into bars and marks each bar's downbeat with a small accent.
+	Meter int
 	// Instruments optionally overrides which instrument each piece plays. Any
 	// piece missing from the map falls back to the default assignment.
 	Instruments map[pgn.Piece]Instrument
@@ -106,7 +113,7 @@ const KeyAuto = -1
 
 // DefaultConfig returns a musically sensible default mapping.
 func DefaultConfig() Config {
-	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto}
+	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto, Beat: 2, Meter: 4}
 }
 
 // instrumentFor returns the instrument a piece should play under cfg, honouring
@@ -250,6 +257,12 @@ func (cfg Config) resolve(game *pgn.Game) Config {
 	if cfg.Key < 0 || cfg.Key > 11 {
 		cfg.Key = deriveKey(game)
 	}
+	if cfg.Beat <= 0 {
+		cfg.Beat = 2
+	}
+	if cfg.Meter <= 0 {
+		cfg.Meter = 4
+	}
 	return cfg
 }
 
@@ -264,15 +277,17 @@ func (cfg Config) pitchFor(file, rank int) int {
 	return steps[file%n] + 12*octave + 12*(rank/2)
 }
 
-// durationByPiece gives each piece a characteristic note length (in eighths),
-// so heavier pieces ring out longer than pawns.
+// durationByPiece gives each piece a characteristic note length in *beats*
+// (whole beats only, so every move lands squarely on the pulse). Lighter
+// pieces get one beat; the queen rings out for two, the way a long note would
+// in a tune.
 var durationByPiece = map[pgn.Piece]int{
-	pgn.Pawn:   1, // eighth note
-	pgn.Knight: 2, // quarter note
-	pgn.Bishop: 2, // quarter note
-	pgn.Rook:   3, // dotted quarter
-	pgn.Queen:  4, // half note
-	pgn.King:   2, // quarter note
+	pgn.Pawn:   1, // one beat
+	pgn.Knight: 1, // one beat
+	pgn.Bishop: 1, // one beat
+	pgn.Rook:   1, // one beat
+	pgn.Queen:  2, // two beats (a long, singing note)
+	pgn.King:   1, // one beat
 }
 
 // instrumentByPiece gives each kind of piece its own voice.
@@ -294,13 +309,32 @@ type Score struct {
 }
 
 // Build converts a parsed game into a Score using the supplied configuration.
+// Moves are laid out on a steady beat grid, and the note that opens each bar is
+// accented so the meter is easy to feel.
 func Build(game *pgn.Game, cfg Config) Score {
 	cfg = cfg.resolve(game)
 	s := Score{Title: game.Title(), Tempo: cfg.Tempo, Config: cfg}
+	barEighths := cfg.Beat * cfg.Meter
+	pos := 0 // running position in eighth units
 	for _, mv := range game.Moves {
-		s.Notes = append(s.Notes, noteFor(mv, cfg))
+		n := noteFor(mv, cfg)
+		if barEighths > 0 && pos%barEighths == 0 {
+			n.Velocity = accentDownbeat(n.Velocity)
+		}
+		s.Notes = append(s.Notes, n)
+		pos += n.Duration
 	}
 	return s
+}
+
+// accentDownbeat nudges a note louder so the first beat of each bar stands out,
+// giving the ear a clear pulse. It never pushes past the MIDI maximum.
+func accentDownbeat(v int) int {
+	v += 12
+	if v > 127 {
+		return 127
+	}
+	return v
 }
 
 // noteFor maps a single move to a Note.
@@ -333,7 +367,7 @@ func noteFor(mv pgn.Move, cfg Config) Note {
 		third := steps[2%len(steps)]
 		fifth := steps[4%len(steps)]
 		n.Pitches = []int{root, root + third, root + fifth}
-		n.Duration = 4
+		n.Duration = 2 * cfg.Beat // a two-beat fanfare
 		return n
 	}
 
@@ -345,11 +379,11 @@ func noteFor(mv pgn.Move, cfg Config) Note {
 	}
 
 	n.Pitches = []int{pitch}
+	beats := 1
 	if d, ok := durationByPiece[mv.Piece]; ok {
-		n.Duration = d
-	} else {
-		n.Duration = 2
+		beats = d
 	}
+	n.Duration = beats * cfg.Beat
 	return n
 }
 
