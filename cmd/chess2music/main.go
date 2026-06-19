@@ -28,18 +28,20 @@ func main() {
 	out := flag.String("out", "game", "output file prefix")
 	tempo := flag.Int("tempo", 120, "playback tempo in quarter-note beats per minute")
 	baseOctave := flag.Int("base-octave", 4, "base octave for White's pitches (4 contains middle C)")
+	scale := flag.String("scale", "major-pentatonic", "musical scale: major-pentatonic, minor-pentatonic, major, minor or dorian")
+	key := flag.String("key", "auto", "musical key (tonic): a note name like C or F#, or 'auto' to derive one from the game")
 	noAudio := flag.Bool("no-audio", false, "skip WAV/MP3 audio rendering")
 	makeVideo := flag.Bool("video", false, "also render an animated board video (<prefix>.mp4, needs ffmpeg)")
 	view := flag.String("view", "lichess", "board view for the video: lichess or chesscom")
 	flag.Parse()
 
-	if err := run(*in, *out, *tempo, *baseOctave, *noAudio, *makeVideo, *view); err != nil {
+	if err := run(*in, *out, *tempo, *baseOctave, *scale, *key, *noAudio, *makeVideo, *view); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
-func run(inPath, prefix string, tempo, baseOctave int, noAudio, makeVideo bool, view string) error {
+func run(inPath, prefix string, tempo, baseOctave int, scale, key string, noAudio, makeVideo bool, view string) error {
 	// Read the PGN, either from a file or from standard input.
 	var data []byte
 	var err error
@@ -63,6 +65,16 @@ func run(inPath, prefix string, tempo, baseOctave int, noAudio, makeVideo bool, 
 	cfg := music.DefaultConfig()
 	cfg.Tempo = tempo
 	cfg.BaseOctave = baseOctave
+	if sc, ok := music.ParseScale(scale); ok {
+		cfg.Scale = sc
+	} else {
+		return fmt.Errorf("unknown scale %q", scale)
+	}
+	if k, ok := music.ParseKey(key); ok {
+		cfg.Key = k
+	} else {
+		return fmt.Errorf("unknown key %q", key)
+	}
 	score := music.Build(game, cfg)
 
 	// ABC notation: the human-readable list of notes.

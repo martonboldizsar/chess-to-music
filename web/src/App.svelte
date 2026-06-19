@@ -18,9 +18,13 @@
     let pgn = $state(SAMPLE_PGN);
     let tempo = $state(120);
     let baseOctave = $state(4);
+    let scale = $state("major-pentatonic"); // melody scale
+    let musicalKey = $state("auto"); // tonic, or "auto" to derive from the game
 
     let pieces = $state([]);
     let instruments = $state([]);
+    let scales = $state([]); // available scale identifiers
+    let keys = $state([]); // available key identifiers ("auto" + note names)
     let mapping = $state({}); // piece -> instrument
     let hasMp3 = $state(true);
     let hasVideo = $state(true);
@@ -48,6 +52,16 @@
     const prettyPiece = (p) => p.charAt(0).toUpperCase() + p.slice(1);
     const prettyInstrument = (i) => i.charAt(0).toUpperCase() + i.slice(1);
 
+    // "major-pentatonic" -> "Major Pentatonic"
+    const prettyScale = (s) =>
+        s
+            .split("-")
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(" ");
+
+    // "auto" -> "Auto (from game)"; note names pass through unchanged.
+    const prettyKey = (k) => (k === "auto" ? "Auto (from game)" : k);
+
     const gameLabel = (g) => {
         const players =
             g.white || g.black ? `${g.white || "?"} vs ${g.black || "?"}` : "";
@@ -65,6 +79,8 @@
             const data = await res.json();
             pieces = data.pieces;
             instruments = data.instruments;
+            scales = data.scales ?? [];
+            keys = data.keys ?? [];
             mapping = { ...data.defaults };
             hasMp3 = data.hasMp3;
             hasVideo = data.hasVideo;
@@ -212,6 +228,8 @@
                     pgn,
                     tempo: Number(tempo),
                     baseOctave: Number(baseOctave),
+                    scale,
+                    key: musicalKey,
                     instruments: mapping,
                     format: outputFormat,
                     boardTheme,
@@ -353,6 +371,25 @@
                     </select>
                 </div>
             {/each}
+        </div>
+
+        <div class="grid">
+            <div class="field">
+                <label for="scale">Scale</label>
+                <select id="scale" bind:value={scale}>
+                    {#each scales as s (s)}
+                        <option value={s}>{prettyScale(s)}</option>
+                    {/each}
+                </select>
+            </div>
+            <div class="field">
+                <label for="key">Key</label>
+                <select id="key" bind:value={musicalKey}>
+                    {#each keys as k (k)}
+                        <option value={k}>{prettyKey(k)}</option>
+                    {/each}
+                </select>
+            </div>
         </div>
 
         <div class="sliders">

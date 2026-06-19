@@ -50,6 +50,8 @@ type generateRequest struct {
 	PGN         string            `json:"pgn"`
 	Tempo       int               `json:"tempo"`
 	BaseOctave  int               `json:"baseOctave"`
+	Scale       string            `json:"scale"`       // e.g. "major-pentatonic" ("" = default)
+	Key         string            `json:"key"`         // tonic note name or "auto" ("" = auto)
 	Instruments map[string]string `json:"instruments"` // piece name -> instrument name
 	Format      string            `json:"format"`      // "mp3" (audio) or "mp4" (animated video)
 	BoardTheme  string            `json:"boardTheme"`  // "lichess" or "chesscom" (mp4 only)
@@ -132,6 +134,8 @@ func handleOptions(w http.ResponseWriter, r *http.Request) {
 	type option struct {
 		Pieces      []string          `json:"pieces"`
 		Instruments []string          `json:"instruments"`
+		Scales      []string          `json:"scales"`
+		Keys        []string          `json:"keys"`
 		Defaults    map[string]string `json:"defaults"`
 		HasMP3      bool              `json:"hasMp3"`
 		HasVideo    bool              `json:"hasVideo"`
@@ -151,6 +155,8 @@ func handleOptions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, option{
 		Pieces:      []string{"pawn", "knight", "bishop", "rook", "queen", "king"},
 		Instruments: music.InstrumentNames(),
+		Scales:      music.ScaleNames(),
+		Keys:        music.KeyNames(),
 		Defaults:    defaults,
 		HasMP3:      audio.HasFFmpeg(),
 		HasVideo:    video.Available(),
@@ -188,6 +194,22 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BaseOctave >= 1 && req.BaseOctave <= 7 {
 		cfg.BaseOctave = req.BaseOctave
+	}
+	if req.Scale != "" {
+		scale, ok := music.ParseScale(req.Scale)
+		if !ok {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown scale %q", req.Scale))
+			return
+		}
+		cfg.Scale = scale
+	}
+	if req.Key != "" {
+		key, ok := music.ParseKey(req.Key)
+		if !ok {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown key %q", req.Key))
+			return
+		}
+		cfg.Key = key
 	}
 
 	cfg.Instruments = map[pgn.Piece]music.Instrument{}

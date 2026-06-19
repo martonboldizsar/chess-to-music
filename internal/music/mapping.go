@@ -2,7 +2,11 @@
 // out in standard notation formats (ABC notation and Standard MIDI Files).
 package music
 
-import "chess-to-music/internal/pgn"
+import (
+	"chess-to-music/internal/pgn"
+	"hash/fnv"
+	"strings"
+)
 
 // Instrument is the timbre/voice a note is played with. Each chess piece maps
 // to a distinct instrument so you can hear which kind of piece moved.
@@ -85,14 +89,24 @@ type Config struct {
 	BaseOctave int
 	// Tempo is the playback tempo in quarter-note beats per minute.
 	Tempo int
+	// Scale is the set of pitches the melody is quantized to, so the whole
+	// game stays in a single key and sounds song-like rather than wandering.
+	Scale ScaleType
+	// Key is the tonic pitch class (0 = C .. 11 = B). A negative value means
+	// "derive a key from the game" so each game gets its own recognisable key.
+	Key int
 	// Instruments optionally overrides which instrument each piece plays. Any
 	// piece missing from the map falls back to the default assignment.
 	Instruments map[pgn.Piece]Instrument
 }
 
+// KeyAuto is the sentinel Config.Key value meaning "derive the key from the
+// game" instead of using a fixed tonic.
+const KeyAuto = -1
+
 // DefaultConfig returns a musically sensible default mapping.
 func DefaultConfig() Config {
-	return Config{BaseOctave: 4, Tempo: 120}
+	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto}
 }
 
 // instrumentFor returns the instrument a piece should play under cfg, honouring
@@ -112,9 +126,143 @@ func (cfg Config) InstrumentForPiece(p pgn.Piece) Instrument {
 	return cfg.instrumentFor(p)
 }
 
-// Major scale semitone offsets for the eight files a..h, so each file of the
-// board maps to a pleasant diatonic step (C D E F G A B C in the home octave).
-var fileScale = [8]int{0, 2, 4, 5, 7, 9, 11, 12}
+// ScaleType selects the set of pitches the melody is quantized to. Keeping
+// every note inside one scale is what makes the result sound like a tune in a
+// key rather than a random walk.
+type ScaleType int
+
+const (
+	ScaleMajorPentatonic ScaleType = iota // foolproof default: never sounds wrong
+	ScaleMinorPentatonic
+	ScaleMajor
+	ScaleMinor
+	ScaleDorian
+	ScaleTypeCount
+)
+
+// scaleNames are the stable identifiers used by the CLI/API and web UI.
+var scaleNames = [ScaleTypeCount]string{
+	ScaleMajorPentatonic: "major-pentatonic",
+	ScaleMinorPentatonic: "minor-pentatonic",
+	ScaleMajor:           "major",
+	ScaleMinor:           "minor",
+	ScaleDorian:          "dorian",
+}
+
+// scaleSteps are the semitone offsets of each scale within one octave.
+var scaleSteps = [ScaleTypeCount][]int{
+	ScaleMajorPentatonic: {0, 2, 4, 7, 9},
+	ScaleMinorPentatonic: {0, 3, 5, 7, 10},
+	ScaleMajor:           {0, 2, 4, 5, 7, 9, 11},
+	ScaleMinor:           {0, 2, 3, 5, 7, 8, 10},
+	ScaleDorian:          {0, 2, 3, 5, 7, 9, 10},
+}
+
+// String returns the stable identifier for a scale.
+func (s ScaleType) String() string {
+	if s < 0 || s >= ScaleTypeCount {
+		return "unknown"
+	}
+	return scaleNames[s]
+}
+
+// ScaleNames returns the available scale identifiers in canonical order.
+func ScaleNames() []string {
+	names := make([]string, ScaleTypeCount)
+	copy(names, scaleNames[:])
+	return names
+}
+
+// ParseScale resolves a scale identifier (e.g. "major-pentatonic") to its
+// ScaleType value, reporting whether it was recognised.
+func ParseScale(name string) (ScaleType, bool) {
+	for i, n := range scaleNames {
+		if n == name {
+			return ScaleType(i), true
+		}
+	}
+	return 0, false
+}
+
+// keyNames are the twelve tonic pitch classes, used to parse and display keys.
+var keyNames = [12]string{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}
+
+// KeyNames returns the selectable key identifiers for UI dropdowns: "auto"
+// (derive from the game) followed by the twelve tonic note names.
+func KeyNames() []string {
+	names := make([]string, 0, len(keyNames)+1)
+	names = append(names, "auto")
+	names = append(names, keyNames[:]...)
+	return names
+}
+
+// KeyName returns the note name of a tonic pitch class (0..11), or "auto" for
+// the KeyAuto sentinel.
+func KeyName(k int) string {
+	if k == KeyAuto {
+		return "auto"
+	}
+	if k < 0 || k > 11 {
+		return "unknown"
+	}
+	return keyNames[k]
+}
+
+// ParseKey resolves a key name ("C", "F#", "auto", …) to a tonic pitch class,
+// returning KeyAuto for "auto". Reports whether the name was recognised.
+func ParseKey(name string) (int, bool) {
+	if strings.EqualFold(name, "auto") {
+		return KeyAuto, true
+	}
+	for i, n := range keyNames {
+		if strings.EqualFold(n, name) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// deriveKey picks a deterministic tonic pitch class from the game's identity
+// (players, event, date and opening moves), so the same game always yields the
+// same key while different games are spread across the twelve keys.
+func deriveKey(game *pgn.Game) int {
+	h := fnv.New64a()
+	write := func(s string) { h.Write([]byte(strings.ToLower(strings.TrimSpace(s)))) }
+	write(game.Tags["White"])
+	write(game.Tags["Black"])
+	write(game.Tags["Event"])
+	write(game.Tags["Date"])
+	for i, mv := range game.Moves {
+		if i >= 12 {
+			break
+		}
+		write(mv.SAN)
+	}
+	return int(h.Sum64() % 12)
+}
+
+// resolve fills in any "auto" fields of the config from the game and clamps the
+// scale to a valid value, returning the concrete config actually used.
+func (cfg Config) resolve(game *pgn.Game) Config {
+	if cfg.Scale < 0 || cfg.Scale >= ScaleTypeCount {
+		cfg.Scale = ScaleMajorPentatonic
+	}
+	if cfg.Key < 0 || cfg.Key > 11 {
+		cfg.Key = deriveKey(game)
+	}
+	return cfg
+}
+
+// pitchFor returns the in-scale pitch offset (relative to the tonic) for a
+// board square. The file selects a scale degree — degrees past the end of the
+// scale wrap into higher octaves, so the eight files trace a rising in-key
+// line — and the rank lifts the note by whole octaves up the board.
+func (cfg Config) pitchFor(file, rank int) int {
+	steps := scaleSteps[cfg.Scale]
+	n := len(steps)
+	octave := file / n
+	return steps[file%n] + 12*octave + 12*(rank/2)
+}
 
 // durationByPiece gives each piece a characteristic note length (in eighths),
 // so heavier pieces ring out longer than pawns.
@@ -147,6 +295,7 @@ type Score struct {
 
 // Build converts a parsed game into a Score using the supplied configuration.
 func Build(game *pgn.Game, cfg Config) Score {
+	cfg = cfg.resolve(game)
 	s := Score{Title: game.Title(), Tempo: cfg.Tempo, Config: cfg}
 	for _, mv := range game.Moves {
 		s.Notes = append(s.Notes, noteFor(mv, cfg))
@@ -165,24 +314,30 @@ func noteFor(mv pgn.Move, cfg Config) Note {
 	}
 
 	// White and black are placed in different registers so the two players are
-	// audibly distinct: White in the base octave, Black a fifth higher.
-	base := 12 * (cfg.BaseOctave + 1) // MIDI octave: C in octave o = 12*(o+1)
+	// audibly distinct: White on the tonic, Black a fifth higher (a perfect
+	// fifth is present in every supported scale, so both stay in key).
+	base := 12*(cfg.BaseOctave+1) + cfg.Key // MIDI octave: C in octave o = 12*(o+1)
 	if mv.Color == pgn.Black {
 		base += 7
 	}
 
 	if mv.Castle != pgn.NoCastle {
-		// Castling is a structural, ceremonial move: render it as a triad.
+		// Castling is a structural, ceremonial move: render it as a triad built
+		// from the scale's 1st, 3rd and 5th degrees, so it matches the key
+		// (a major triad in major scales, a minor triad in minor ones).
+		steps := scaleSteps[cfg.Scale]
 		root := base
 		if mv.Castle == pgn.QueenSide {
-			root += 5 // a different colour for the two castling sides
+			root += 7 // a different colour (up a fifth) for the two castling sides
 		}
-		n.Pitches = []int{root, root + 4, root + 7} // major triad
+		third := steps[2%len(steps)]
+		fifth := steps[4%len(steps)]
+		n.Pitches = []int{root, root + third, root + fifth}
 		n.Duration = 4
 		return n
 	}
 
-	pitch := base + fileScale[mv.File] + 12*(mv.Rank/2)
+	pitch := base + cfg.pitchFor(mv.File, mv.Rank)
 
 	// A promotion lifts the pawn into its new piece's voice by an octave.
 	if mv.Promotion != 0 {

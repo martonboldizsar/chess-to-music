@@ -73,6 +73,8 @@ go run ./cmd/chess2music -in testdata/sample.pgn -out game -video -view chesscom
 | `-out`         | `game`    | Output file prefix                                            |
 | `-tempo`       | `120`     | Playback tempo in quarter-note beats per minute               |
 | `-base-octave` | `4`       | Base octave for White's pitches (octave 4 contains middle C)  |
+| `-scale`       | `major-pentatonic` | Melody scale: `major-pentatonic`, `minor-pentatonic`, `major`, `minor` or `dorian` |
+| `-key`         | `auto`    | Musical key (tonic): a note name like `C` or `F#`, or `auto` to derive one from the game |
 | `-no-audio`    | `false`   | Skip WAV/MP3 rendering (only write `.abc` and `.mid`)         |
 | `-video`       | `false`   | Also render an animated board video (`<prefix>.mp4`, needs `ffmpeg`) |
 | `-view`        | `lichess` | Board view for the video: `lichess` or `chesscom`             |
@@ -136,7 +138,7 @@ is unreachable, the server logs a warning and disables only the library.
 | Endpoint          | Method | Description                                                                                  |
 | ----------------- | ------ | -------------------------------------------------------------------------------------------- |
 | `/api/options`    | GET    | Lists pieces, instruments, the default mapping, and the available board views                |
-| `/api/generate`   | POST   | JSON `{pgn, tempo, baseOctave, instruments, format, boardTheme}` → MP3/WAV audio or MP4 video |
+| `/api/generate`   | POST   | JSON `{pgn, tempo, baseOctave, scale, key, instruments, format, boardTheme}` → MP3/WAV audio or MP4 video |
 | `/api/games`      | GET    | Lists saved games (built-in library first), without PGN bodies                               |
 | `/api/games/{id}` | GET    | Returns one saved game including its PGN                                                      |
 | `/api/games`      | POST   | JSON `{title, pgn, boardTheme}` → saves a game and returns it                                 |
@@ -192,8 +194,15 @@ starts; the container needs ~512 MB to render video comfortably.
 
 ## How moves become music
 
-- **Pitch** — the destination file (a–h) maps to a C-major scale step, and the
-  rank (1–8) shifts the octave, so moves up the board rise in pitch.
+- **Pitch** — the destination file (a–h) selects a step of the chosen scale and
+  the rank (1–8) lifts it by octaves, so moves up the board rise in pitch. Every
+  note is quantised to a single key, so the whole game stays in tune.
+- **Key & scale** — pick a `scale` (major/minor pentatonic, major, minor or
+  dorian) and a `key`. The default scale is **major pentatonic**, which keeps
+  even chaotic games sounding pleasant. With `key` set to `auto` each game gets
+  its own key, derived deterministically from the players, event and opening, so
+  a given game always sounds the same and different games are spread across the
+  twelve keys.
 - **Duration** — pawn = eighth, knight/bishop/king = quarter, rook = dotted
   quarter, queen = half note.
 - **Instruments** — each piece has its own voice: pawn = piano, knight = horn,
@@ -205,7 +214,7 @@ starts; the container needs ~512 MB to render video comfortably.
   percussive hit, checks a bright ping, checkmate a deep drum hit, and castling a
   shaker swell.
 - **Players** — White plays in the base register; Black plays a fifth higher.
-- **Castling** — rendered as a major triad (a small "fanfare").
+- **Castling** — rendered as an in-key triad (a small "fanfare").
 - **Promotion** — the promoted pawn jumps up an octave.
 
 ## Animated video
