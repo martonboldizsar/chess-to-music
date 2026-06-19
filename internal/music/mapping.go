@@ -102,6 +102,10 @@ type Config struct {
 	// Meter is the number of beats per bar (4 = common time). It groups moves
 	// into bars and marks each bar's downbeat with a small accent.
 	Meter int
+	// Intro enables a short opening motif played before the game: a recognisable
+	// musical "hook" that is the same for every game in the same opening, so a
+	// game can be recalled by its tune.
+	Intro bool
 	// Instruments optionally overrides which instrument each piece plays. Any
 	// piece missing from the map falls back to the default assignment.
 	Instruments map[pgn.Piece]Instrument
@@ -113,7 +117,7 @@ const KeyAuto = -1
 
 // DefaultConfig returns a musically sensible default mapping.
 func DefaultConfig() Config {
-	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto, Beat: 2, Meter: 4}
+	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto, Beat: 2, Meter: 4, Intro: true}
 }
 
 // instrumentFor returns the instrument a piece should play under cfg, honouring
@@ -302,27 +306,40 @@ var instrumentByPiece = map[pgn.Piece]Instrument{
 
 // Score is the full musical rendering of a game.
 type Score struct {
-	Title  string
-	Tempo  int
-	Notes  []Note
-	Config Config
+	Title   string
+	Opening string // recognised opening name, if any (for labelling)
+	Tempo   int
+	Notes   []Note
+	Config  Config
 }
 
 // Build converts a parsed game into a Score using the supplied configuration.
-// Moves are laid out on a steady beat grid, and the note that opens each bar is
-// accented so the meter is easy to feel.
+// Moves are laid out on a steady beat grid, the note that opens each bar is
+// accented so the meter is easy to feel, and (when enabled) a short opening
+// motif is played first as a recognisable hook.
 func Build(game *pgn.Game, cfg Config) Score {
 	cfg = cfg.resolve(game)
 	s := Score{Title: game.Title(), Tempo: cfg.Tempo, Config: cfg}
 	barEighths := cfg.Beat * cfg.Meter
 	pos := 0 // running position in eighth units
-	for _, mv := range game.Moves {
-		n := noteFor(mv, cfg)
+	emit := func(n Note) {
 		if barEighths > 0 && pos%barEighths == 0 {
 			n.Velocity = accentDownbeat(n.Velocity)
 		}
 		s.Notes = append(s.Notes, n)
 		pos += n.Duration
+	}
+
+	intro, opening := cfg.introMotif(game)
+	if opening == "" {
+		opening = strings.TrimSpace(game.Tags["Opening"])
+	}
+	s.Opening = opening
+	for _, n := range intro {
+		emit(n)
+	}
+	for _, mv := range game.Moves {
+		emit(noteFor(mv, cfg))
 	}
 	return s
 }
@@ -335,6 +352,178 @@ func accentDownbeat(v int) int {
 		return 127
 	}
 	return v
+}
+
+// degreeOffset converts a scale degree to a semitone offset above the tonic.
+// Degrees beyond the scale wrap into higher octaves (and negative degrees into
+// lower ones), so a motif can range freely while always staying in key.
+func (cfg Config) degreeOffset(degree int) int {
+	steps := scaleSteps[cfg.Scale]
+	n := len(steps)
+	idx := degree % n
+	oct := degree / n
+	if idx < 0 {
+		idx += n
+		oct--
+	}
+	return steps[idx] + 12*oct
+}
+
+// openingMotifVelocity is how loud the intro hook plays: present and clear, but
+// not as punchy as the game's accents.
+const openingMotifVelocity = 92
+
+// introMotif builds the short opening hook for a game and returns it together
+// with the recognised opening name (empty when unknown). The hook is the same
+// for every game that starts with the same opening, which is what lets players
+// recognise an opening by its tune. It is padded to whole bars so the game
+// itself still begins on a downbeat.
+func (cfg Config) introMotif(game *pgn.Game) ([]Note, string) {
+	if !cfg.Intro {
+		return nil, ""
+	}
+	tokens := openingTokens(game)
+	if len(tokens) == 0 {
+		return nil, ""
+	}
+	name, degrees := lookupOpening(tokens, len(scaleSteps[cfg.Scale]))
+	if len(degrees) == 0 {
+		return nil, name
+	}
+
+	base := 12*(cfg.BaseOctave+1) + cfg.Key
+	notes := make([]Note, 0, len(degrees))
+	for _, d := range degrees {
+		notes = append(notes, Note{
+			Pitches:    []int{base + cfg.degreeOffset(d)},
+			Duration:   cfg.Beat,
+			Velocity:   openingMotifVelocity,
+			Color:      pgn.White,
+			Instrument: InstViolin, // a clear, singing lead for the hook
+			SAN:        "opening",
+		})
+	}
+
+	// Pad the motif out to a whole number of bars so the first move lands on a
+	// downbeat. The final note simply rings a little longer.
+	if barEighths := cfg.Beat * cfg.Meter; barEighths > 0 {
+		total := 0
+		for _, n := range notes {
+			total += n.Duration
+		}
+		if rem := total % barEighths; rem != 0 {
+			notes[len(notes)-1].Duration += barEighths - rem
+		}
+	}
+	return notes, name
+}
+
+// openingTokens returns the normalised SAN of the game's first few plies, with
+// check/mate and annotation marks stripped, for matching against known
+// openings and for deriving a fallback motif.
+func openingTokens(game *pgn.Game) []string {
+	const maxPlies = 8
+	var toks []string
+	for i, mv := range game.Moves {
+		if i >= maxPlies {
+			break
+		}
+		toks = append(toks, strings.TrimRight(mv.SAN, "+#!?"))
+	}
+	return toks
+}
+
+// opening pairs a leading SAN move sequence with its name and signature motif
+// (a sequence of scale degrees). Degrees are kept within 0..5 so every motif
+// stays musical in all supported scales.
+type opening struct {
+	moves []string
+	name  string
+	motif []int
+}
+
+// openingTable lists well-known openings, each with a hand-picked motif. Longer
+// (more specific) entries win over shorter ones, so a Ruy Lopez is recognised
+// ahead of the generic King's Pawn opening.
+var openingTable = []opening{
+	{[]string{"e4"}, "King's Pawn Opening", []int{0, 2, 4, 2, 0}},
+	{[]string{"d4"}, "Queen's Pawn Opening", []int{0, 1, 3, 1, 0}},
+	{[]string{"c4"}, "English Opening", []int{4, 2, 0, 2, 4}},
+	{[]string{"Nf3"}, "Réti Opening", []int{0, 3, 5, 3, 0}},
+	{[]string{"f4"}, "Bird's Opening", []int{2, 4, 3, 1, 0}},
+	{[]string{"e4", "c5"}, "Sicilian Defense", []int{4, 3, 2, 1, 0}},
+	{[]string{"e4", "e6"}, "French Defense", []int{0, 1, 2, 1, 0}},
+	{[]string{"e4", "c6"}, "Caro-Kann Defense", []int{0, 2, 1, 3, 0}},
+	{[]string{"e4", "d5"}, "Scandinavian Defense", []int{5, 4, 3, 2, 0}},
+	{[]string{"e4", "d6"}, "Pirc Defense", []int{1, 3, 2, 4, 0}},
+	{[]string{"e4", "g6"}, "Modern Defense", []int{3, 1, 4, 2, 0}},
+	{[]string{"e4", "e5", "Nc3"}, "Vienna Game", []int{2, 4, 2, 0}},
+	{[]string{"e4", "e5", "f4"}, "King's Gambit", []int{0, 4, 3, 5, 4, 0}},
+	{[]string{"e4", "e5", "Nf3", "Nf6"}, "Petrov Defense", []int{0, 1, 0, 2, 0}},
+	{[]string{"e4", "e5", "Nf3", "Nc6", "Bb5"}, "Ruy Lopez", []int{0, 2, 4, 5, 4, 0}},
+	{[]string{"e4", "e5", "Nf3", "Nc6", "Bc4"}, "Italian Game", []int{0, 4, 2, 4, 5, 0}},
+	{[]string{"e4", "e5", "Nf3", "Nc6", "d4"}, "Scotch Game", []int{0, 4, 5, 4, 2, 0}},
+	{[]string{"d4", "d5", "c4"}, "Queen's Gambit", []int{0, 2, 4, 3, 2, 0}},
+	{[]string{"d4", "d5", "c4", "c6"}, "Slav Defense", []int{0, 2, 3, 2, 0}},
+	{[]string{"d4", "Nf6", "c4", "g6"}, "King's Indian Defense", []int{0, 3, 2, 5, 4, 0}},
+	{[]string{"d4", "Nf6", "c4", "e6"}, "Indian Defense", []int{2, 0, 3, 1, 0}},
+	{[]string{"d4", "f5"}, "Dutch Defense", []int{3, 1, 4, 2, 0}},
+}
+
+// lookupOpening finds the most specific known opening that prefixes the game's
+// moves, returning its name and motif. When nothing matches it returns an empty
+// name and a motif derived deterministically from the moves, so even unknown
+// lines get their own consistent signature.
+func lookupOpening(tokens []string, scaleLen int) (string, []int) {
+	bestLen := -1
+	var bestName string
+	var bestMotif []int
+	for _, o := range openingTable {
+		if len(o.moves) > len(tokens) || len(o.moves) <= bestLen {
+			continue
+		}
+		if hasPrefix(tokens, o.moves) {
+			bestLen = len(o.moves)
+			bestName = o.name
+			bestMotif = o.motif
+		}
+	}
+	if bestLen >= 0 {
+		return bestName, bestMotif
+	}
+	return "", deriveMotif(tokens, scaleLen)
+}
+
+// hasPrefix reports whether prefix matches the start of tokens.
+func hasPrefix(tokens, prefix []string) bool {
+	if len(prefix) > len(tokens) {
+		return false
+	}
+	for i, p := range prefix {
+		if tokens[i] != p {
+			return false
+		}
+	}
+	return true
+}
+
+// deriveMotif produces a deterministic five-note signature for an unrecognised
+// opening by hashing its moves, so the same line always sounds the same. The
+// phrase resolves back to the tonic for a sense of closure.
+func deriveMotif(tokens []string, scaleLen int) []int {
+	if scaleLen <= 0 {
+		return nil
+	}
+	h := fnv.New64a()
+	h.Write([]byte(strings.Join(tokens, " ")))
+	x := h.Sum64()
+	motif := make([]int, 0, 5)
+	for i := 0; i < 4; i++ {
+		motif = append(motif, int(x%uint64(scaleLen)))
+		x /= uint64(scaleLen)
+	}
+	motif = append(motif, 0) // end on the tonic
+	return motif
 }
 
 // noteFor maps a single move to a Note.
