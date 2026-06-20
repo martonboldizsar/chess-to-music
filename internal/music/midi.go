@@ -45,7 +45,7 @@ var gmProgram = [InstrumentCount]byte{
 	InstTuba:       58,  // Tuba
 	InstBassGuitar: 33,  // Electric Bass (finger)
 	InstJawHarp:    108, // Kalimba (closest plucked-metal voice to a jaw harp)
-	InstViola:      45,  // Pizzicato Strings
+	InstCello:      42,  // Cello
 	InstXylophone:  13,  // Xylophone
 }
 

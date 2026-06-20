@@ -19,7 +19,7 @@ const (
 	InstTuba                         // deep sustained sub-octave drone
 	InstBassGuitar                   // deep, round plucked bass string
 	InstJawHarp                      // twangy plucked metal with a sweeping formant
-	InstViola                        // short woody pizzicato pluck
+	InstCello                        // warm bowed sustained string
 	InstXylophone                    // bright, short mallet "ting"
 	InstrumentCount
 )
@@ -33,7 +33,7 @@ var instrumentNames = [InstrumentCount]string{
 	InstTuba:       "tuba",
 	InstBassGuitar: "bass guitar",
 	InstJawHarp:    "jaw harp",
-	InstViola:      "viola",
+	InstCello:      "cello",
 	InstXylophone:  "xylophone",
 }
 
@@ -311,7 +311,7 @@ var defaultFileInstruments = [8]Instrument{
 	InstJawHarp,    // b-file: twangy plucked metal
 	InstOrgan,      // c-file: pulsing reed organ
 	InstHorn,       // d-file: bright sustained brass
-	InstViola,      // e-file: short woody pizzicato
+	InstCello,      // e-file: warm bowed sustained string
 	InstPiano,      // f-file: struck string, long ring
 	InstBassGuitar, // g-file: deep, round plucked bass string
 	InstXylophone,  // h-file: bright mallet "ting"

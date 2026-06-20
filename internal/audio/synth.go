@@ -150,15 +150,17 @@ var voices = [music.InstrumentCount]voice{
 		release:   0.1,
 		bright:    0.12,
 	},
-	// Viola (e-file): a plucked string (pizzicato) — a sharp pluck with a short,
-	// woody decay and no sustain. A quick "ponk" that stands apart from every
-	// sustained voice and is much shorter than the piano's ring.
-	music.InstViola: {
-		harmonics:  []float64{1, 0.75, 0.55, 0.32, 0.16},
-		attack:     0.003,
-		percussive: true,
-		decay:      0.26,
-		bright:     2.8,
+	// Cello (e-file): a warm bowed string — a gradual bowed swell with a rich,
+	// rounded spectrum, a full sustain and a gentle vibrato. Singing and woody,
+	// the only bowed voice, clearly distinct from the brass and the plucks.
+	music.InstCello: {
+		harmonics:   []float64{1, 0.7, 0.55, 0.42, 0.3, 0.2, 0.12},
+		vibrato:     0.006,
+		vibratoRate: 5.0,
+		attack:      0.08,
+		sustain:     0.9,
+		release:     0.12,
+		bright:      0.4,
 	},
 	// Piano (f-file): a struck string — a fast, bright attack that rings out and
 	// mellows over a long decay. Bell-like, and clearly longer than the pluck.
