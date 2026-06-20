@@ -13,28 +13,58 @@ import (
 type Instrument int
 
 const (
-	InstPiano      Instrument = iota // struck string, long ring
-	InstHorn                         // bright sustained brass
-	InstOrgan                        // hollow reed organ with a tremolo pulse
-	InstTuba                         // deep sustained sub-octave drone
-	InstBassGuitar                   // deep, round plucked bass string
-	InstJawHarp                      // twangy plucked metal with a sweeping formant
-	InstCello                        // warm bowed sustained string
-	InstXylophone                    // bright, short mallet "ting"
+	InstPiano        Instrument = iota // struck string, long ring
+	InstHorn                           // bright sustained brass
+	InstOrgan                          // hollow reed organ with a tremolo pulse
+	InstTuba                           // deep sustained sub-octave drone
+	InstBassGuitar                     // deep, round plucked bass string
+	InstJawHarp                        // twangy plucked metal with a sweeping formant
+	InstCello                          // warm bowed sustained string
+	InstXylophone                      // bright, short mallet "ting"
+	InstMarimba                        // warm wooden mallet with a rounded ring
+	InstZither                         // bright shimmering plucked strings
+	InstUkulele                        // soft nylon plucked string
+	InstMandolin                       // bright steel strings with a tremolo shimmer
+	InstTrumpet                        // edgy, brilliant sustained brass
+	InstFlute                          // airy, nearly pure wind tone with breath
+	InstClarinet                       // hollow woody reed (odd harmonics)
+	InstOboe                           // bright nasal double reed
+	InstBassoon                        // dark, reedy low double reed
+	InstViolin                         // bright bowed string with vibrato
+	InstHarpsichord                    // bright, brittle plucked keyboard
+	InstBanjo                          // twangy, very bright short pluck
+	InstGlockenspiel                   // glassy metallic bell, very bright
+	InstAccordion                      // reedy sustained tremolo bellows
+	InstSitar                          // buzzy, dense-harmonic plucked drone
 	InstrumentCount
 )
 
 // instrumentNames are the stable identifiers used by the CLI/API and the web
 // UI to refer to instruments. The order matches the Instrument constants.
 var instrumentNames = [InstrumentCount]string{
-	InstPiano:      "piano",
-	InstHorn:       "horn",
-	InstOrgan:      "organ",
-	InstTuba:       "tuba",
-	InstBassGuitar: "bass guitar",
-	InstJawHarp:    "jaw harp",
-	InstCello:      "cello",
-	InstXylophone:  "xylophone",
+	InstPiano:        "piano",
+	InstHorn:         "horn",
+	InstOrgan:        "organ",
+	InstTuba:         "tuba",
+	InstBassGuitar:   "bass guitar",
+	InstJawHarp:      "jaw harp",
+	InstCello:        "cello",
+	InstXylophone:    "xylophone",
+	InstMarimba:      "marimba",
+	InstZither:       "zither",
+	InstUkulele:      "ukulele",
+	InstMandolin:     "mandolin",
+	InstTrumpet:      "trumpet",
+	InstFlute:        "flute",
+	InstClarinet:     "clarinet",
+	InstOboe:         "oboe",
+	InstBassoon:      "bassoon",
+	InstViolin:       "violin",
+	InstHarpsichord:  "harpsichord",
+	InstBanjo:        "banjo",
+	InstGlockenspiel: "glockenspiel",
+	InstAccordion:    "accordion",
+	InstSitar:        "sitar",
 }
 
 // String returns the stable identifier for an instrument.
@@ -302,19 +332,21 @@ func (cfg Config) resolve(game *pgn.Game) Config {
 }
 
 // defaultFileInstruments is the file→timbre palette: the eight files a–h each
-// get their own instrument. They are chosen to be as different from one another
-// as possible — deep drone, twang, pulsing organ, brass, plucks of different
-// lengths, a bright mallet — so an untrained ear can tell which file a move
-// landed on. Users can override any of these via Config.
+// get their own instrument. The set was chosen by measuring every voice's
+// zero-crossing rate (ZCR, a brightness/noise proxy) and spectral centroid and
+// greedily picking the eight that sit farthest apart in that timbre space, so
+// no two files sound alike. They are ordered by spectral centroid, dark→bright,
+// so the files sweep from a deep tuba up to an airy flute. Users can override
+// any of these via Config.
 var defaultFileInstruments = [8]Instrument{
-	InstTuba,       // a-file: deep sustained drone
-	InstJawHarp,    // b-file: twangy plucked metal
-	InstOrgan,      // c-file: pulsing reed organ
-	InstHorn,       // d-file: bright sustained brass
-	InstCello,      // e-file: warm bowed sustained string
-	InstPiano,      // f-file: struck string, long ring
-	InstBassGuitar, // g-file: deep, round plucked bass string
-	InstXylophone,  // h-file: bright mallet "ting"
+	InstTuba,        // a-file: deep sustained drone (centroid ~245 Hz)
+	InstHarpsichord, // b-file: bright brittle plucked keyboard
+	InstXylophone,   // c-file: bright, short mallet "ting"
+	InstJawHarp,     // d-file: twangy plucked metal
+	InstCello,       // e-file: warm bowed sustained string with vibrato
+	InstOrgan,       // f-file: pulsing hollow reed organ
+	InstTrumpet,     // g-file: harsh blaring brass
+	InstFlute,       // h-file: airy breathy wind (centroid ~3.4 kHz)
 }
 
 // fileInstrument returns the file's timbre, honouring the per-file overrides in

@@ -185,13 +185,180 @@ var voices = [music.InstrumentCount]voice{
 	},
 	// Xylophone (h-file): a bright wooden mallet — a hard "ting" with a strong
 	// upper partial that decays almost instantly to a pure tone. The shortest,
-	// brightest, most percussive voice.
+	// brightest, glassiest, most percussive voice — a quick odd-harmonic snap.
 	music.InstXylophone: {
-		harmonics:  []float64{1, 0, 0.7, 0, 0.4, 0, 0.25},
+		harmonics:  []float64{1, 0, 0.7, 0, 0.45, 0, 0.3, 0, 0.2},
+		attack:     0.001,
+		percussive: true,
+		decay:      0.1,
+		bright:     4.5,
+	},
+	// Marimba: a warm wooden mallet — like the xylophone but lower and rounder,
+	// with a strong tuned fourth-harmonic overtone and a fuller, longer ring.
+	// Mellow and woody where the xylophone is glassy and brittle.
+	music.InstMarimba: {
+		harmonics:  []float64{1, 0.15, 0, 0.5, 0, 0.1, 0, 0.08},
+		attack:     0.003,
+		percussive: true,
+		decay:      0.5,
+		subOctave:  0.3,
+		bright:     2.0,
+	},
+	// Zither: a bright shimmering plucked string — a dense harmonic spectrum
+	// struck fast and left to ring, with a light vibrato shimmer over a long
+	// decay. Thinner and more metallic than the piano, clearly a plucked harp.
+	music.InstZither: {
+		harmonics:   []float64{1, 0.7, 0.55, 0.45, 0.38, 0.3, 0.24, 0.18, 0.12},
+		vibrato:     0.004,
+		vibratoRate: 6.5,
+		attack:      0.003,
+		percussive:  true,
+		decay:       1.1,
+		bright:      1.4,
+	},
+	// Ukulele: a soft nylon pluck — only a few low harmonics, a gentle attack
+	// and a short, mellow decay. Round and intimate, clearly smaller and softer
+	// than the brighter steel plucks.
+	music.InstUkulele: {
+		harmonics:  []float64{1, 0.45, 0.2, 0.08},
+		attack:     0.005,
+		percussive: true,
+		decay:      0.45,
+		bright:     0.8,
+	},
+	// Mandolin: bright steel double-strings — a crisp pluck with a rich, edgy
+	// spectrum and the instrument's signature fast tremolo shimmer on the
+	// amplitude, ringing out over a medium decay.
+	music.InstMandolin: {
+		harmonics:    []float64{1, 0.8, 0.6, 0.5, 0.4, 0.32, 0.25, 0.18},
+		attack:       0.003,
+		percussive:   true,
+		decay:        0.7,
+		tremoloRate:  9.0,
+		tremoloDepth: 0.4,
+		bright:       1.2,
+	},
+	// Trumpet: harsh, guttural brass — a blaring, almost overblown spectrum
+	// where the upper partials stay nearly as loud as the fundamental, with a
+	// hard, fast attack and only the faintest vibrato. The most aggressive,
+	// snarling sustained voice.
+	music.InstTrumpet: {
+		harmonics:   []float64{1, 1.0, 0.95, 0.9, 0.82, 0.72, 0.6, 0.48, 0.36, 0.26},
+		vibrato:     0.0015,
+		vibratoRate: 6.0,
+		attack:      0.008,
+		sustain:     0.95,
+		release:     0.07,
+		bright:      0.05,
+	},
+	// Flute: an airy, almost pure wind tone — a near-sine spectrum with a strong
+	// breath component and a gentle vibrato. The breath noise lifts its zero-
+	// crossing rate while the harmonics stay sparse and dark.
+	music.InstFlute: {
+		harmonics:   []float64{1, 0.2, 0.06},
+		vibrato:     0.006,
+		vibratoRate: 5.0,
+		attack:      0.06,
+		sustain:     0.9,
+		release:     0.12,
+		breath:      0.5,
+	},
+	// Clarinet: a hollow woody reed — the classic odd-harmonics-only spectrum
+	// (no even partials) and a flat sustain. Woody and round, distinctly hollow
+	// next to the brass.
+	music.InstClarinet: {
+		harmonics: []float64{1, 0.04, 0.75, 0.04, 0.55, 0.04, 0.4, 0.04, 0.28},
+		attack:    0.03,
+		sustain:   0.92,
+		release:   0.08,
+	},
+	// Oboe: a bright, nasal double reed — a reedy spectrum that peaks on the 2nd
+	// and 3rd partials, with no vibrato at all. Piercing and penetrating, much
+	// brighter than the clarinet.
+	music.InstOboe: {
+		harmonics:   []float64{0.7, 1, 0.9, 0.72, 0.55, 0.4, 0.28, 0.18},
+		vibrato:     0,
+		vibratoRate: 5.5,
+		attack:      0.02,
+		sustain:     0.9,
+		release:     0.08,
+	},
+	// Bassoon: a dark, reedy low double reed — energy concentrated in the low
+	// partials with a small sub-octave and a soft attack. The dark reed voice,
+	// sitting well below the oboe and clarinet.
+	music.InstBassoon: {
+		harmonics: []float64{0.5, 1, 0.7, 0.4, 0.22, 0.12},
+		subOctave: 0.35,
+		attack:    0.04,
+		sustain:   0.9,
+		release:   0.1,
+	},
+	// Violin: a bright bowed string — a rich saw-like spectrum with a fast,
+	// shimmering vibrato and a bowed swell. Brighter and more singing than the
+	// cello, the high bowed voice.
+	music.InstViolin: {
+		harmonics:   []float64{1, 0.85, 0.72, 0.6, 0.5, 0.42, 0.34, 0.27, 0.2, 0.14},
+		vibrato:     0.008,
+		vibratoRate: 6.0,
+		attack:      0.05,
+		sustain:     0.9,
+		release:     0.1,
+		bright:      0.3,
+	},
+	// Harpsichord: a brittle, steely plucked keyboard — a dense, glittery
+	// full spectrum struck hard and left to ring on at a steady metallic
+	// brightness, far longer and far less glassy than the xylophone's quick
+	// odd-harmonic snap.
+	music.InstHarpsichord: {
+		harmonics:  []float64{1, 0.9, 0.82, 0.72, 0.62, 0.52, 0.42, 0.32, 0.24, 0.18, 0.12},
+		attack:     0.003,
+		percussive: true,
+		decay:      0.9,
+		bright:     0.8,
+	},
+	// Banjo: a twangy, very bright short pluck — a strident high-harmonic
+	// spectrum that snaps and decays fast. One of the brightest, most jangly
+	// plucked voices.
+	music.InstBanjo: {
+		harmonics:  []float64{1, 0.9, 0.95, 0.82, 0.78, 0.68, 0.58, 0.5, 0.42, 0.34, 0.26},
 		attack:     0.002,
 		percussive: true,
-		decay:      0.16,
-		bright:     3.5,
+		decay:      0.4,
+		bright:     3.0,
+	},
+	// Glockenspiel: a glassy metallic bell — sparse but very high partials that
+	// ring out with a hard mallet attack. The brightest, most crystalline voice,
+	// even glassier than the xylophone.
+	music.InstGlockenspiel: {
+		harmonics:  []float64{1, 0, 0, 0.7, 0, 0, 0.5, 0, 0.4, 0, 0.3},
+		attack:     0.001,
+		percussive: true,
+		decay:      0.6,
+		bright:     4.0,
+	},
+	// Accordion: a reedy bellows voice — a full mid-rich spectrum with a slow
+	// tremolo wobble and a flat sustain. Buzzy and continuous, like the organ
+	// but warmer and less hollow.
+	music.InstAccordion: {
+		harmonics:    []float64{1, 0.8, 0.62, 0.5, 0.4, 0.3, 0.22, 0.15},
+		attack:       0.03,
+		sustain:      0.92,
+		release:      0.08,
+		tremoloRate:  5.5,
+		tremoloDepth: 0.2,
+	},
+	// Sitar: a buzzy, dense-harmonic plucked drone — an extremely rich spectrum
+	// with a sub-octave drone and sympathetic shimmer, ringing out over a long
+	// decay. The buzziest plucked voice, unmistakably exotic.
+	music.InstSitar: {
+		harmonics:   []float64{1, 0.92, 0.88, 0.82, 0.76, 0.68, 0.6, 0.52, 0.45, 0.38, 0.3, 0.24},
+		vibrato:     0.004,
+		vibratoRate: 7.0,
+		subOctave:   0.4,
+		attack:      0.003,
+		percussive:  true,
+		decay:       1.3,
+		bright:      1.8,
 	},
 }
 
