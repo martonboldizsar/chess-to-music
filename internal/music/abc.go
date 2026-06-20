@@ -49,7 +49,7 @@ func (s Score) WriteABC() string {
 	pos := 0  // position within the current bar, in eighths
 	bars := 0 // completed bars on the current line
 	for _, n := range s.Notes {
-		b.WriteString(abcNote(n))
+		b.WriteString(abcNoteRhythm(n))
 		b.WriteByte(' ')
 		pos += n.Duration
 		if pos >= barEighths {
@@ -65,6 +65,23 @@ func (s Score) WriteABC() string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// abcNoteRhythm renders a Note as one or more ABC tokens. A plain note is a
+// single token; a note carrying a rhythm figure becomes a space-separated
+// sequence of same-pitch tokens, one per attack.
+func abcNoteRhythm(n Note) string {
+	if len(n.Rhythm) == 0 {
+		return abcNote(n)
+	}
+	parts := make([]string, 0, len(n.Rhythm))
+	for _, d := range n.Rhythm {
+		m := n
+		m.Duration = d
+		m.Rhythm = nil
+		parts = append(parts, abcNote(m))
+	}
+	return strings.Join(parts, " ")
 }
 
 // abcNote renders one Note (single pitch or chord) as an ABC token.

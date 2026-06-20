@@ -29,7 +29,7 @@ func main() {
 	tempo := flag.Int("tempo", 120, "playback tempo in quarter-note beats per minute")
 	baseOctave := flag.Int("base-octave", 4, "base octave for White's pitches (4 contains middle C)")
 	scale := flag.String("scale", "major-pentatonic", "musical scale: major-pentatonic, minor-pentatonic, major, minor or dorian")
-	key := flag.String("key", "auto", "musical key (tonic): a note name like C or F#, or 'auto' to derive one from the game")
+	key := flag.String("key", "C", "musical key (tonic): a note name like C or F#, or 'auto' to derive one from the game")
 	noAudio := flag.Bool("no-audio", false, "skip WAV/MP3 audio rendering")
 	makeVideo := flag.Bool("video", false, "also render an animated board video (<prefix>.mp4, needs ffmpeg)")
 	view := flag.String("view", "lichess", "board view for the video: lichess or chesscom")

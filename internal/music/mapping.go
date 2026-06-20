@@ -13,24 +13,28 @@ import (
 type Instrument int
 
 const (
-	InstPiano  Instrument = iota // pawns
-	InstHorn                     // knights
-	InstOrgan                    // bishops
-	InstTuba                     // rooks
-	InstViolin                   // queens
-	InstChoir                    // kings
+	InstPiano     Instrument = iota // struck string, long ring
+	InstHorn                        // bright sustained brass
+	InstOrgan                       // hollow reed organ with a tremolo pulse
+	InstTuba                        // deep sustained sub-octave drone
+	InstGuitar                      // warm plucked string
+	InstJawHarp                     // twangy plucked metal with a sweeping formant
+	InstViola                       // short woody pizzicato pluck
+	InstXylophone                   // bright, short mallet "ting"
 	InstrumentCount
 )
 
 // instrumentNames are the stable identifiers used by the CLI/API and the web
 // UI to refer to instruments. The order matches the Instrument constants.
 var instrumentNames = [InstrumentCount]string{
-	InstPiano:  "piano",
-	InstHorn:   "horn",
-	InstOrgan:  "organ",
-	InstTuba:   "tuba",
-	InstViolin: "violin",
-	InstChoir:  "choir",
+	InstPiano:     "piano",
+	InstHorn:      "horn",
+	InstOrgan:     "organ",
+	InstTuba:      "tuba",
+	InstGuitar:    "guitar",
+	InstJawHarp:   "jaw harp",
+	InstViola:     "viola",
+	InstXylophone: "xylophone",
 }
 
 // String returns the stable identifier for an instrument.
@@ -65,7 +69,7 @@ type Effect uint8
 
 const (
 	EffectCapture Effect = 1 << iota // a piece was taken: percussive hit
-	EffectCheck                      // check: bright bell/triangle ping
+	EffectCheck                      // check: no added sound (only a louder note)
 	EffectMate                       // checkmate: big cymbal crash
 	EffectCastle                     // castling: shaker swell under the triad
 )
@@ -79,7 +83,22 @@ type Note struct {
 	Color      pgn.Color
 	Instrument Instrument // which voice plays this note (derived from the piece)
 	Effects    Effect     // special-move flourishes to layer on top
-	SAN        string     // source move, kept for ABC comments
+	// Rhythm, when non-empty, re-articulates the single pitch as a sequence of
+	// attacks of these eighth-unit lengths (summing to Duration) instead of one
+	// sustained note. It lets a move carry a recognisable rhythmic figure while
+	// still counting as one note for animation and bar-keeping.
+	Rhythm []int
+	SAN    string // source move, kept for ABC comments
+}
+
+// AttackDurations returns the note's internal attack pattern in eighth units:
+// the rhythm figure when set (re-articulating the same pitch), otherwise a
+// single attack spanning the whole duration.
+func (n Note) AttackDurations() []int {
+	if len(n.Rhythm) > 0 {
+		return n.Rhythm
+	}
+	return []int{n.Duration}
 }
 
 // Config controls how chess moves are mapped to pitches and rhythm.
@@ -114,35 +133,39 @@ type Config struct {
 	// an ABA song form that resolves on the tonic. Hearing the hook return makes
 	// the tune more memorable.
 	Chorus bool
-	// Instruments optionally overrides which instrument each piece plays. Any
-	// piece missing from the map falls back to the default assignment.
-	Instruments map[pgn.Piece]Instrument
+	// FileInstruments chooses the instrument for each file (column) a–h, indexed
+	// 0 (a-file) .. 7 (h-file). The file a move lands on selects its timbre, so
+	// every column has its own voice. Players can remap these.
+	FileInstruments [8]Instrument
+	// PieceRhythms chooses the rhythmic figure each kind of piece plays, by
+	// rhythm-pattern name (see rhythmPatterns). The moving piece selects the
+	// groove, so you can hear which piece moved. Players can remap these.
+	PieceRhythms map[pgn.Piece]string
 }
 
 // KeyAuto is the sentinel Config.Key value meaning "derive the key from the
 // game" instead of using a fixed tonic.
 const KeyAuto = -1
 
-// DefaultConfig returns a musically sensible default mapping.
+// DefaultConfig returns a musically sensible default mapping. The key defaults
+// to a fixed tonic (C) rather than "auto" so that a given rank sounds the same
+// in every game, which is what makes games learnable by ear. Moves are voiced
+// as rank→pitch, file→instrument and piece→rhythm; the file-instrument palette
+// and per-piece rhythms below are the user-overridable defaults.
 func DefaultConfig() Config {
-	return Config{BaseOctave: 4, Tempo: 120, Scale: ScaleMajorPentatonic, Key: KeyAuto, Beat: 2, Meter: 4, Intro: true, Harmony: true, Chorus: true}
-}
-
-// instrumentFor returns the instrument a piece should play under cfg, honouring
-// any per-piece override and otherwise using the default assignment.
-func (cfg Config) instrumentFor(p pgn.Piece) Instrument {
-	if cfg.Instruments != nil {
-		if inst, ok := cfg.Instruments[p]; ok {
-			return inst
-		}
+	return Config{
+		BaseOctave:      4,
+		Tempo:           120,
+		Scale:           ScaleMajorPentatonic,
+		Key:             0,
+		Beat:            2,
+		Meter:           4,
+		Intro:           true,
+		Harmony:         true,
+		Chorus:          true,
+		FileInstruments: defaultFileInstruments,
+		PieceRhythms:    defaultPieceRhythms(),
 	}
-	return instrumentByPiece[p]
-}
-
-// InstrumentForPiece is the exported form of instrumentFor, used by callers
-// (such as the web API) to report the instrument assigned to a piece.
-func (cfg Config) InstrumentForPiece(p pgn.Piece) Instrument {
-	return cfg.instrumentFor(p)
 }
 
 // ScaleType selects the set of pitches the melody is quantized to. Keeping
@@ -278,38 +301,107 @@ func (cfg Config) resolve(game *pgn.Game) Config {
 	return cfg
 }
 
-// pitchFor returns the in-scale pitch offset (relative to the tonic) for a
-// board square. The file selects a scale degree — degrees past the end of the
-// scale wrap into higher octaves, so the eight files trace a rising in-key
-// line — and the rank lifts the note by whole octaves up the board.
-func (cfg Config) pitchFor(file, rank int) int {
-	steps := scaleSteps[cfg.Scale]
-	n := len(steps)
-	octave := file / n
-	return steps[file%n] + 12*octave + 12*(rank/2)
+// defaultFileInstruments is the file→timbre palette: the eight files a–h each
+// get their own instrument. They are chosen to be as different from one another
+// as possible — deep drone, twang, pulsing organ, brass, plucks of different
+// lengths, a bright mallet — so an untrained ear can tell which file a move
+// landed on. Users can override any of these via Config.
+var defaultFileInstruments = [8]Instrument{
+	InstTuba,      // a-file: deep sustained drone
+	InstJawHarp,   // b-file: twangy plucked metal
+	InstOrgan,     // c-file: pulsing reed organ
+	InstHorn,      // d-file: bright sustained brass
+	InstViola,     // e-file: short woody pizzicato
+	InstPiano,     // f-file: struck string, long ring
+	InstGuitar,    // g-file: warm plucked string
+	InstXylophone, // h-file: bright mallet "ting"
 }
 
-// durationByPiece gives each piece a characteristic note length in *beats*
-// (whole beats only, so every move lands squarely on the pulse). Lighter
-// pieces get one beat; the queen rings out for two, the way a long note would
-// in a tune.
-var durationByPiece = map[pgn.Piece]int{
-	pgn.Pawn:   1, // one beat
-	pgn.Knight: 1, // one beat
-	pgn.Bishop: 1, // one beat
-	pgn.Rook:   1, // one beat
-	pgn.Queen:  2, // two beats (a long, singing note)
-	pgn.King:   1, // one beat
+// fileInstrument returns the file's timbre, honouring the per-file overrides in
+// cfg and falling back to the first voice when the file is out of range.
+func (cfg Config) fileInstrument(file int) Instrument {
+	if file < 0 || file >= len(cfg.FileInstruments) {
+		return cfg.FileInstruments[0]
+	}
+	return cfg.FileInstruments[file]
 }
 
-// instrumentByPiece gives each kind of piece its own voice.
-var instrumentByPiece = map[pgn.Piece]Instrument{
-	pgn.Pawn:   InstPiano,  // foot soldiers: plain piano
-	pgn.Knight: InstHorn,   // cavalry: a horn
-	pgn.Bishop: InstOrgan,  // the church: an organ
-	pgn.Rook:   InstTuba,   // the heavy tower: a tuba
-	pgn.Queen:  InstViolin, // the lead voice: a violin
-	pgn.King:   InstChoir,  // the monarch: a choir
+// rhythmPattern is a named rhythmic figure: a list of eighth-unit attack
+// lengths that together fill one 4/4 bar (summing to eight eighths). The moving
+// piece selects a pattern, so a move keeps its single bar but its groove
+// announces which piece moved.
+type rhythmPattern struct {
+	name  string
+	beats []int
+}
+
+// rhythmPatterns are the selectable grooves, in canonical (UI) order. Each fills
+// one bar so every move still occupies exactly one bar regardless of pattern.
+var rhythmPatterns = []rhythmPattern{
+	{"march", []int{2, 2, 2, 2}},         // four even quarters
+	{"accent-front", []int{4, 2, 2}},     // long note in front
+	{"accent-middle", []int{2, 4, 2}},    // long note in the middle
+	{"accent-back", []int{2, 2, 4}},      // long note at the back
+	{"stride", []int{4, 4}},              // two slow halves
+	{"syncopated", []int{1, 2, 2, 2, 1}}, // off-beat lean
+	{"gallop", []int{1, 1, 2, 2, 2}},     // quick double upbeat
+	{"held", []int{8}},                   // one sustained whole note
+}
+
+// RhythmNames returns the selectable rhythm-pattern identifiers in canonical
+// order, for CLI/API listing and UI dropdowns.
+func RhythmNames() []string {
+	names := make([]string, len(rhythmPatterns))
+	for i, p := range rhythmPatterns {
+		names[i] = p.name
+	}
+	return names
+}
+
+// rhythmBeats resolves a rhythm-pattern name to its eighth-unit figure,
+// reporting whether the name was recognised.
+func rhythmBeats(name string) ([]int, bool) {
+	for _, p := range rhythmPatterns {
+		if p.name == name {
+			return p.beats, true
+		}
+	}
+	return nil, false
+}
+
+// ValidRhythm reports whether name is a known rhythm-pattern identifier.
+func ValidRhythm(name string) bool {
+	_, ok := rhythmBeats(name)
+	return ok
+}
+
+// defaultPieceRhythms assigns each piece a recognisable default groove: pawns
+// march in even quarters, the king strides in two halves, the knight/rook/
+// bishop place their long note at the front/middle/back of the bar, and the
+// queen leans with an off-beat syncopation.
+func defaultPieceRhythms() map[pgn.Piece]string {
+	return map[pgn.Piece]string{
+		pgn.Pawn:   "march",
+		pgn.Knight: "accent-front",
+		pgn.Rook:   "accent-middle",
+		pgn.Bishop: "accent-back",
+		pgn.King:   "stride",
+		pgn.Queen:  "syncopated",
+	}
+}
+
+// pieceRhythm returns the rhythmic figure (a list of eighth-unit note lengths)
+// that identifies a piece, from the per-piece rhythm names in cfg. Each figure
+// fills one 4/4 bar, so a move still occupies a single bar but its groove
+// announces which piece moved. Unknown or unset pieces fall back to a march.
+func (cfg Config) pieceRhythm(p pgn.Piece) []int {
+	if name, ok := cfg.PieceRhythms[p]; ok {
+		if beats, ok := rhythmBeats(name); ok {
+			return beats
+		}
+	}
+	beats, _ := rhythmBeats("march")
+	return beats
 }
 
 // Score is the full musical rendering of a game.
@@ -541,7 +633,7 @@ func (cfg Config) renderMotif(degrees []int, velocity int, san string) []Note {
 			Duration:   cfg.Beat,
 			Velocity:   velocity,
 			Color:      pgn.White,
-			Instrument: InstViolin, // a clear, singing lead for the hook
+			Instrument: InstGuitar, // a clear plucked lead for the hook
 			SAN:        san,
 		})
 	}
@@ -592,7 +684,7 @@ func (cfg Config) outroChorus(game *pgn.Game) []Note {
 		Duration:   dur,
 		Velocity:   openingMotifVelocity,
 		Color:      pgn.White,
-		Instrument: InstViolin,
+		Instrument: InstGuitar,
 		SAN:        "ending",
 	})
 	return chorus
@@ -720,14 +812,15 @@ func deriveMotif(tokens []string, scaleLen int) []int {
 	return motif
 }
 
-// noteFor maps a single move to a Note.
+// noteFor maps a single move to a Note. The move's rank (row) becomes an
+// in-scale pitch within about one octave, its file (column) chooses the
+// instrument, and the piece type selects a per-bar rhythmic figure.
 func noteFor(mv pgn.Move, cfg Config) Note {
 	n := Note{
-		Color:      mv.Color,
-		SAN:        mv.SAN,
-		Velocity:   velocityFor(mv),
-		Instrument: cfg.instrumentFor(mv.Piece),
-		Effects:    effectsFor(mv),
+		Color:    mv.Color,
+		SAN:      mv.SAN,
+		Velocity: velocityFor(mv),
+		Effects:  effectsFor(mv),
 	}
 
 	// White and black are placed in different registers so the two players are
@@ -741,32 +834,36 @@ func noteFor(mv pgn.Move, cfg Config) Note {
 	if mv.Castle != pgn.NoCastle {
 		// Castling is a structural, ceremonial move: render it as a triad built
 		// from the scale's 1st, 3rd and 5th degrees, so it matches the key
-		// (a major triad in major scales, a minor triad in minor ones).
+		// (a major triad in major scales, a minor triad in minor ones). It takes
+		// the timbre of the king's destination file (g-side or c-side).
 		steps := scaleSteps[cfg.Scale]
 		root := base
+		kingFile := 6 // g-file (kingside)
 		if mv.Castle == pgn.QueenSide {
-			root += 7 // a different colour (up a fifth) for the two castling sides
+			root += 7    // a different colour (up a fifth) for the two castling sides
+			kingFile = 2 // c-file (queenside)
 		}
 		third := steps[2%len(steps)]
 		fifth := steps[4%len(steps)]
 		n.Pitches = []int{root, root + third, root + fifth}
+		n.Instrument = cfg.fileInstrument(kingFile)
 		n.Duration = 2 * cfg.Beat // a two-beat fanfare
 		return n
 	}
 
-	pitch := base + cfg.pitchFor(mv.File, mv.Rank)
-
-	// A promotion lifts the pawn into its new piece's voice by an octave.
+	// The rank (row) becomes an in-scale pitch within about one octave.
+	pitch := base + cfg.degreeOffset(mv.Rank)
 	if mv.Promotion != 0 {
-		pitch += 12
+		pitch += 12 // a promotion lifts the new piece up an octave
 	}
-
 	n.Pitches = []int{pitch}
-	beats := 1
-	if d, ok := durationByPiece[mv.Piece]; ok {
-		beats = d
+	n.Instrument = cfg.fileInstrument(mv.File)
+	n.Rhythm = cfg.pieceRhythm(mv.Piece)
+	total := 0
+	for _, d := range n.Rhythm {
+		total += d
 	}
-	n.Duration = beats * cfg.Beat
+	n.Duration = total
 	return n
 }
 

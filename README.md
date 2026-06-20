@@ -8,10 +8,13 @@ formats.
 > **Try it live:** [chess-to-music.onrender.com](https://chess-to-music.onrender.com)
 > (hosted on Render's free tier, so the first load may take a moment to wake up).
 
-Each move's destination square becomes a pitch, the moving piece decides the
-note length, and annotations (captures, checks, checkmate) control loudness.
-White and Black are placed in different registers and given different
-instruments so you can hear the two players converse.
+Every move becomes a note. A move's **row** sets the pitch within a single
+hummable octave, its **column** (file) picks the instrument, and the **piece
+type** plays its own rhythmic figure — so a game is easy to learn and recall by
+ear. The column instruments and per-piece rhythms are fully customisable.
+Annotations (captures, checkmate, castling) add percussion, checks make a note
+louder, and White and Black are placed in different registers so you can hear
+the two players converse.
 
 The result is shaped to sound like an actual song rather than a random walk:
 every note is quantised to a single musical key, moves fall on a steady beat, a
@@ -80,7 +83,7 @@ go run ./cmd/chess2music -in testdata/sample.pgn -out game -video -view chesscom
 | `-tempo`       | `120`     | Playback tempo in quarter-note beats per minute               |
 | `-base-octave` | `4`       | Base octave for White's pitches (octave 4 contains middle C)  |
 | `-scale`       | `major-pentatonic` | Melody scale: `major-pentatonic`, `minor-pentatonic`, `major`, `minor` or `dorian` |
-| `-key`         | `auto`    | Musical key (tonic): a note name like `C` or `F#`, or `auto` to derive one from the game |
+| `-key`         | `C`       | Musical key (tonic): a note name like `C` or `F#`, or `auto` to derive one from the game |
 | `-no-audio`    | `false`   | Skip WAV/MP3 rendering (only write `.abc` and `.mid`)         |
 | `-video`       | `false`   | Also render an animated board video (`<prefix>.mp4`, needs `ffmpeg`) |
 | `-view`        | `lichess` | Board view for the video: `lichess` or `chesscom`             |
@@ -90,9 +93,9 @@ Only the first game in a PGN file is rendered.
 ## Web UI
 
 A small Svelte 5 frontend (built with [Bun](https://bun.sh)) lets you paste or
-upload a game, pick which piece plays which instrument, and choose the output:
-either an **MP3** to play/download, or an **animated MP4** of the board in a
-Lichess or Chess.com view, synced to the music.
+upload a game, customise the column instruments and per-piece rhythms, and pick
+the output: either an **MP3** to play/download, or an **animated MP4** of the
+board in a Lichess or Chess.com view, synced to the music.
 
 The quickest way to run the whole stack (app + Postgres) is Docker:
 
@@ -143,8 +146,8 @@ is unreachable, the server logs a warning and disables only the library.
 
 | Endpoint          | Method | Description                                                                                  |
 | ----------------- | ------ | -------------------------------------------------------------------------------------------- |
-| `/api/options`    | GET    | Lists pieces, instruments, the default mapping, and the available board views                |
-| `/api/generate`   | POST   | JSON `{pgn, tempo, baseOctave, scale, key, instruments, format, boardTheme}` → MP3/WAV audio or MP4 video |
+| `/api/options`    | GET    | Lists pieces, instruments, scales, keys, files, rhythm patterns, the default file→instrument and piece→rhythm maps, and the available board views |
+| `/api/generate`   | POST   | JSON `{pgn, tempo, baseOctave, scale, key, fileInstruments, rhythms, format, boardTheme}` → MP3/WAV audio or MP4 video |
 | `/api/games`      | GET    | Lists saved games (built-in library first), without PGN bodies                               |
 | `/api/games/{id}` | GET    | Returns one saved game including its PGN                                                      |
 | `/api/games`      | POST   | JSON `{title, pgn, boardTheme}` → saves a game and returns it                                 |
@@ -200,17 +203,30 @@ starts; the container needs ~512 MB to render video comfortably.
 
 ## How moves become music
 
-- **Pitch** — the destination file (a–h) selects a step of the chosen scale and
-  the rank (1–8) lifts it by octaves, so moves up the board rise in pitch. Every
-  note is quantised to a single key, so the whole game stays in tune.
+- **Sound mapping** — every move is spread across pitch, timbre and rhythm so
+  it is easy to tell apart by ear:
+  - the **row** (1–8) sets an in-scale pitch within about one hummable octave;
+  - the **column** (a–h) chooses the instrument — by default eight deliberately
+    very different voices (tuba, jaw harp, organ, horn, pizzicato viola, piano,
+    guitar, xylophone) so an untrained ear can still hear which file a move
+    landed on, and each file's instrument can be remapped via the web UI or the
+    API;
+  - the **piece type** plays a recognisable rhythmic figure inside the bar (by
+    default the pawn marches in even quarters, the king strides in two halves,
+    the rook/knight/bishop place a long note at the middle/front/back of the
+    bar, and the queen leans with an off-beat syncopation). Each piece's rhythm
+    can be remapped to any of the named patterns (`march`, `accent-front`,
+    `accent-middle`, `accent-back`, `stride`, `syncopated`, `gallop`, `held`).
+  Splitting the move across three easy-to-tell channels makes games and openings
+  memorable by ear.
 - **Key & scale** — pick a `scale` (major/minor pentatonic, major, minor or
   dorian) and a `key`. The default scale is **major pentatonic**, which keeps
-  even chaotic games sounding pleasant. With `key` set to `auto` each game gets
-  its own key, derived deterministically from the players, event and opening, so
-  a given game always sounds the same and different games are spread across the
-  twelve keys.
-- **Meter** — moves are laid out on a steady beat, one per bar of common time,
-  and the first beat of each bar is accented, giving the music a clear,
+  even chaotic games sounding pleasant. The key defaults to **C** so a given
+  row always sounds the same across games, which is what makes them
+  learnable; set `key` to `auto` to instead derive a per-game key
+  deterministically from the players, event and opening.
+- **Meter** — moves are laid out on a steady beat, one move per bar of common
+  time, and the first beat of each bar is accented, giving the music a clear,
   foot-tapping pulse.
 - **Opening hook** — the piece opens with a short motif chosen from the game's
   opening (a curated melody for ~36 well-known openings, or a deterministic one
@@ -222,18 +238,15 @@ starts; the container needs ~512 MB to render video comfortably.
 - **Accompaniment** — a bass line and a sustained chord pad play underneath the
   melody. Each bar's chord follows the melody note on its downbeat, so the
   harmony is always in key and gives the tune a song-like backing.
-- **Duration** — pawns and minor pieces last one beat; the queen rings out for
-  two, like a long, singing note.
-- **Instruments** — each piece has its own voice: pawn = piano, knight = horn,
-  bishop = organ, rook = tuba, queen = violin, king = choir. These can be
-  remapped per piece (via the web UI or the API).
 - **Dynamics** — captures, checks and checkmate get progressively louder
   accents.
 - **Effects** — special moves add a sound on top of the note: captures get a
-  percussive hit, checks a bright ping, checkmate a deep drum hit, and castling a
-  shaker swell.
+  sharp drumstick strike, checkmate a deep drum hit, and castling a short drum
+  roll that builds into the move. (Checks are not given an extra sound — they
+  only play louder.)
 - **Players** — White plays in the base register; Black plays a fifth higher.
-- **Castling** — rendered as an in-key triad (a small "fanfare").
+- **Castling** — rendered as an in-key triad (a small "fanfare") under the drum
+  roll.
 - **Promotion** — the promoted pawn jumps up an octave.
 
 ## Animated video

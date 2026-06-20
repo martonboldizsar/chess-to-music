@@ -39,16 +39,19 @@ func accompChannel(v AccVoice) byte {
 // gmProgram gives each Instrument a General MIDI program number (0-based) so a
 // standard synthesiser plays each chess piece with its own voice.
 var gmProgram = [InstrumentCount]byte{
-	InstPiano:  0,  // Acoustic Grand Piano (pawns)
-	InstHorn:   60, // French Horn (knights)
-	InstOrgan:  19, // Church Organ (bishops)
-	InstTuba:   58, // Tuba (rooks)
-	InstViolin: 40, // Violin (queens)
-	InstChoir:  52, // Choir Aahs (kings)
+	InstPiano:     0,   // Acoustic Grand Piano
+	InstHorn:      60,  // French Horn
+	InstOrgan:     19,  // Church Organ
+	InstTuba:      58,  // Tuba
+	InstGuitar:    24,  // Acoustic Guitar (nylon)
+	InstJawHarp:   108, // Kalimba (closest plucked-metal voice to a jaw harp)
+	InstViola:     45,  // Pizzicato Strings
+	InstXylophone: 13,  // Xylophone
 }
 
 // midiChannel assigns each instrument a dedicated MIDI channel, skipping the
-// percussion channel (9). With six instruments this never collides.
+// percussion channel (9). With eight instruments (channels 0..8) this never
+// collides with percussion (9) or the accompaniment (11, 12).
 func midiChannel(inst Instrument) byte {
 	ch := byte(inst)
 	if ch >= percussionChannel {
@@ -67,9 +70,6 @@ func percussionFor(e Effect) []gmHit {
 	var hits []gmHit
 	if e&EffectCapture != 0 {
 		hits = append(hits, gmHit{38, 110}) // Acoustic Snare
-	}
-	if e&EffectCheck != 0 {
-		hits = append(hits, gmHit{81, 100}) // Open Triangle
 	}
 	if e&EffectMate != 0 {
 		// Checkmate: a deep, robust drum hit (low + acoustic bass drum).
@@ -123,18 +123,24 @@ func (s Score) WriteMIDI() []byte {
 	var cum uint32
 	for _, n := range s.Notes {
 		ch := midiChannel(n.Instrument)
-		dur := uint32(n.Duration) * ticksPerEighth
 		vel := byte(clampVelocity(n.Velocity))
-		start, end := cum, cum+dur
-		for _, p := range n.Pitches {
-			add(start, 1, 0x90|ch, byte(p), vel)
-			add(end, 0, 0x80|ch, byte(p), 0)
+		first := true
+		for _, d := range n.AttackDurations() {
+			dur := uint32(d) * ticksPerEighth
+			start, end := cum, cum+dur
+			for _, p := range n.Pitches {
+				add(start, 1, 0x90|ch, byte(p), vel)
+				add(end, 0, 0x80|ch, byte(p), 0)
+			}
+			if first {
+				for _, hit := range percussionFor(n.Effects) {
+					add(start, 1, 0x90|percussionChannel, hit.note, hit.velocity)
+					add(end, 0, 0x80|percussionChannel, hit.note, 0)
+				}
+				first = false
+			}
+			cum = end
 		}
-		for _, hit := range percussionFor(n.Effects) {
-			add(start, 1, 0x90|percussionChannel, hit.note, hit.velocity)
-			add(end, 0, 0x80|percussionChannel, hit.note, 0)
-		}
-		cum = end
 	}
 
 	// Accompaniment: bass and pad at absolute positions on their own channels.

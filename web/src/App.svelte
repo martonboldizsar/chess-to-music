@@ -19,13 +19,16 @@
     let tempo = $state(120);
     let baseOctave = $state(4);
     let scale = $state("major-pentatonic"); // melody scale
-    let musicalKey = $state("auto"); // tonic, or "auto" to derive from the game
+    let musicalKey = $state("C"); // tonic, or "auto" to derive from the game
 
     let pieces = $state([]);
     let instruments = $state([]);
     let scales = $state([]); // available scale identifiers
     let keys = $state([]); // available key identifiers ("auto" + note names)
-    let mapping = $state({}); // piece -> instrument
+    let files = $state([]); // board files a–h
+    let rhythms = $state([]); // available rhythm-pattern identifiers
+    let fileInstruments = $state({}); // file letter -> instrument
+    let pieceRhythms = $state({}); // piece -> rhythm-pattern name
     let hasMp3 = $state(true);
     let hasVideo = $state(true);
     let boardThemes = $state([]); // [{ name, label }]
@@ -62,6 +65,16 @@
     // "auto" -> "Auto (from game)"; note names pass through unchanged.
     const prettyKey = (k) => (k === "auto" ? "Auto (from game)" : k);
 
+    // "a" -> "A-file".
+    const prettyFile = (f) => `${f.toUpperCase()}-file`;
+
+    // "accent-front" -> "Accent Front".
+    const prettyRhythm = (r) =>
+        r
+            .split("-")
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(" ");
+
     const gameLabel = (g) => {
         const players =
             g.white || g.black ? `${g.white || "?"} vs ${g.black || "?"}` : "";
@@ -81,7 +94,10 @@
             instruments = data.instruments;
             scales = data.scales ?? [];
             keys = data.keys ?? [];
-            mapping = { ...data.defaults };
+            files = data.files ?? [];
+            rhythms = data.rhythms ?? [];
+            fileInstruments = { ...data.defaultFileInstruments };
+            pieceRhythms = { ...data.defaultRhythms };
             hasMp3 = data.hasMp3;
             hasVideo = data.hasVideo;
             boardThemes = data.boardThemes ?? [];
@@ -213,6 +229,32 @@
         reader.readAsText(file);
     }
 
+    // Instrument auditioning: a single reusable <audio> element plays a short
+    // sample of the chosen instrument so users can compare voices while mapping
+    // files. previewing holds the instrument currently sounding (for the UI).
+    let previewing = $state("");
+    let previewAudio;
+
+    function previewInstrument(inst) {
+        if (!previewAudio) previewAudio = new Audio();
+        // Toggle off if the same instrument is already playing.
+        if (previewing === inst) {
+            previewAudio.pause();
+            previewing = "";
+            return;
+        }
+        previewAudio.pause();
+        previewing = inst;
+        previewAudio.src = `/api/preview?instrument=${encodeURIComponent(inst)}`;
+        previewAudio.onended = () => {
+            if (previewing === inst) previewing = "";
+        };
+        previewAudio.play().catch((e) => {
+            error = `Could not play sample: ${e.message}`;
+            previewing = "";
+        });
+    }
+
     async function generate() {
         error = "";
         loading = true;
@@ -230,7 +272,8 @@
                     baseOctave: Number(baseOctave),
                     scale,
                     key: musicalKey,
-                    instruments: mapping,
+                    fileInstruments,
+                    rhythms: pieceRhythms,
                     format: outputFormat,
                     boardTheme,
                 }),
@@ -357,16 +400,59 @@
     </section>
 
     <section class="panel">
-        <h2>2. Instruments</h2>
+        <h2>2. Sound</h2>
+
+        <p class="hint">
+            Each move's <strong>row</strong> sets the pitch (one hummable
+            octave), the <strong>column</strong> (file) picks the instrument,
+            and the <strong>piece</strong> plays its own rhythm — so games are easy
+            to learn and recall by ear. Customise the column instruments and piece
+            rhythms below.
+        </p>
+
+        <h3 class="subhead">Column instruments</h3>
+        <div class="grid">
+            {#each files as f (f)}
+                <div class="field">
+                    <label for={`file-${f}`}>{prettyFile(f)}</label>
+                    <div class="instrument-row">
+                        <select
+                            id={`file-${f}`}
+                            bind:value={fileInstruments[f]}
+                        >
+                            {#each instruments as inst (inst)}
+                                <option value={inst}
+                                    >{prettyInstrument(inst)}</option
+                                >
+                            {/each}
+                        </select>
+                        <button
+                            type="button"
+                            class="preview-btn"
+                            class:playing={previewing === fileInstruments[f]}
+                            title={`Hear ${prettyInstrument(fileInstruments[f] ?? "")}`}
+                            aria-label={`Hear ${prettyInstrument(fileInstruments[f] ?? "")} sample`}
+                            onclick={() =>
+                                previewInstrument(fileInstruments[f])}
+                        >
+                            {previewing === fileInstruments[f] ? "■" : "▶"}
+                        </button>
+                    </div>
+                </div>
+            {/each}
+        </div>
+
+        <h3 class="subhead">Piece rhythms</h3>
         <div class="grid">
             {#each pieces as piece (piece)}
                 <div class="field">
-                    <label for={`inst-${piece}`}>{prettyPiece(piece)}</label>
-                    <select id={`inst-${piece}`} bind:value={mapping[piece]}>
-                        {#each instruments as inst (inst)}
-                            <option value={inst}
-                                >{prettyInstrument(inst)}</option
-                            >
+                    <label for={`rhythm-${piece}`}>{prettyPiece(piece)}</label>
+                    <select
+                        id={`rhythm-${piece}`}
+                        bind:value={pieceRhythms[piece]}
+                    >
+                        {#each rhythms as r (r)}
+                            <option value={r}>{prettyRhythm(r)}</option>
                         {/each}
                     </select>
                 </div>

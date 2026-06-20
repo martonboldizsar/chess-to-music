@@ -45,16 +45,31 @@ var pieceByName = map[string]pgn.Piece{
 	"king":   pgn.King,
 }
 
+// fileNames are the eight board files a–h in order; their index is the
+// FileInstruments slot they configure.
+var fileNames = []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+
+// fileIndex resolves a file letter ("a".."h") to its 0-based index.
+func fileIndex(name string) (int, bool) {
+	for i, n := range fileNames {
+		if n == name {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
 // generateRequest is the JSON body accepted by POST /api/generate.
 type generateRequest struct {
-	PGN         string            `json:"pgn"`
-	Tempo       int               `json:"tempo"`
-	BaseOctave  int               `json:"baseOctave"`
-	Scale       string            `json:"scale"`       // e.g. "major-pentatonic" ("" = default)
-	Key         string            `json:"key"`         // tonic note name or "auto" ("" = auto)
-	Instruments map[string]string `json:"instruments"` // piece name -> instrument name
-	Format      string            `json:"format"`      // "mp3" (audio) or "mp4" (animated video)
-	BoardTheme  string            `json:"boardTheme"`  // "lichess" or "chesscom" (mp4 only)
+	PGN             string            `json:"pgn"`
+	Tempo           int               `json:"tempo"`
+	BaseOctave      int               `json:"baseOctave"`
+	Scale           string            `json:"scale"`           // e.g. "major-pentatonic" ("" = default)
+	Key             string            `json:"key"`             // tonic note name or "auto" ("" = auto)
+	FileInstruments map[string]string `json:"fileInstruments"` // file letter a–h -> instrument name
+	Rhythms         map[string]string `json:"rhythms"`         // piece name -> rhythm-pattern name
+	Format          string            `json:"format"`          // "mp3" (audio) or "mp4" (animated video)
+	BoardTheme      string            `json:"boardTheme"`      // "lichess" or "chesscom" (mp4 only)
 }
 
 func main() {
@@ -105,6 +120,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/options", handleOptions)
+	mux.HandleFunc("GET /api/preview", handlePreview)
 	mux.HandleFunc("POST /api/generate", handleGenerate)
 	mux.HandleFunc("GET /api/games", srv.handleListGames)
 	mux.HandleFunc("GET /api/games/{id}", srv.handleGetGame)
@@ -132,19 +148,26 @@ func handleOptions(w http.ResponseWriter, r *http.Request) {
 		Label string `json:"label"`
 	}
 	type option struct {
-		Pieces      []string          `json:"pieces"`
-		Instruments []string          `json:"instruments"`
-		Scales      []string          `json:"scales"`
-		Keys        []string          `json:"keys"`
-		Defaults    map[string]string `json:"defaults"`
-		HasMP3      bool              `json:"hasMp3"`
-		HasVideo    bool              `json:"hasVideo"`
-		BoardThemes []boardTheme      `json:"boardThemes"`
+		Pieces                 []string          `json:"pieces"`
+		Instruments            []string          `json:"instruments"`
+		Scales                 []string          `json:"scales"`
+		Keys                   []string          `json:"keys"`
+		Files                  []string          `json:"files"`
+		Rhythms                []string          `json:"rhythms"`
+		DefaultFileInstruments map[string]string `json:"defaultFileInstruments"`
+		DefaultRhythms         map[string]string `json:"defaultRhythms"`
+		HasMP3                 bool              `json:"hasMp3"`
+		HasVideo               bool              `json:"hasVideo"`
+		BoardThemes            []boardTheme      `json:"boardThemes"`
 	}
-	defaults := map[string]string{}
 	cfg := music.DefaultConfig()
+	defaultFileInstruments := map[string]string{}
+	for i, name := range fileNames {
+		defaultFileInstruments[name] = cfg.FileInstruments[i].String()
+	}
+	defaultRhythms := map[string]string{}
 	for name, piece := range pieceByName {
-		defaults[name] = cfg.InstrumentForPiece(piece).String()
+		defaultRhythms[name] = cfg.PieceRhythms[piece]
 	}
 	var themes []boardTheme
 	for _, name := range render.ThemeNames() {
@@ -153,15 +176,63 @@ func handleOptions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, option{
-		Pieces:      []string{"pawn", "knight", "bishop", "rook", "queen", "king"},
-		Instruments: music.InstrumentNames(),
-		Scales:      music.ScaleNames(),
-		Keys:        music.KeyNames(),
-		Defaults:    defaults,
-		HasMP3:      audio.HasFFmpeg(),
-		HasVideo:    video.Available(),
-		BoardThemes: themes,
+		Pieces:                 []string{"pawn", "knight", "bishop", "rook", "queen", "king"},
+		Instruments:            music.InstrumentNames(),
+		Scales:                 music.ScaleNames(),
+		Keys:                   music.KeyNames(),
+		Files:                  fileNames,
+		Rhythms:                music.RhythmNames(),
+		DefaultFileInstruments: defaultFileInstruments,
+		DefaultRhythms:         defaultRhythms,
+		HasMP3:                 audio.HasFFmpeg(),
+		HasVideo:               video.Available(),
+		BoardThemes:            themes,
 	})
+}
+
+// handlePreview renders a short, fixed musical phrase played by a single
+// instrument so the UI can let users audition each voice while configuring the
+// file→instrument mapping. The instrument is chosen with ?instrument=<name>.
+func handlePreview(w http.ResponseWriter, r *http.Request) {
+	inst, ok := music.ParseInstrument(r.URL.Query().Get("instrument"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown instrument %q", r.URL.Query().Get("instrument")))
+		return
+	}
+
+	// A short ascending arpeggio resolving on the octave: long enough to reveal
+	// the voice's attack and decay, identical for every instrument so they can
+	// be compared directly.
+	pitches := []int{60, 64, 67, 72}
+	notes := make([]music.Note, len(pitches))
+	for i, p := range pitches {
+		dur := 2 // a quarter note
+		if i == len(pitches)-1 {
+			dur = 6 // let the final note ring
+		}
+		notes[i] = music.Note{
+			Pitches:    []int{p},
+			Duration:   dur,
+			Velocity:   96,
+			Instrument: inst,
+		}
+	}
+	score := music.Score{Tempo: 132, Notes: notes}
+	wav := audio.RenderWAV(score)
+
+	mp3, err := audio.WAVToMP3Bytes(wav)
+	switch {
+	case err == nil:
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(mp3)
+	case errors.Is(err, audio.ErrNoFFmpeg):
+		w.Header().Set("Content-Type", "audio/wav")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(wav)
+	default:
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("audio conversion failed: %v", err))
+	}
 }
 
 // handleGenerate parses the PGN, builds the score with the requested instrument
@@ -212,11 +283,12 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		cfg.Key = key
 	}
 
-	cfg.Instruments = map[pgn.Piece]music.Instrument{}
-	for pieceName, instName := range req.Instruments {
-		piece, ok := pieceByName[pieceName]
+	// Per-file instrument overrides: each file a–h chooses the timbre of moves
+	// that land on it. Unspecified files keep their default voice.
+	for fileName, instName := range req.FileInstruments {
+		idx, ok := fileIndex(fileName)
 		if !ok {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown piece %q", pieceName))
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown file %q", fileName))
 			return
 		}
 		inst, ok := music.ParseInstrument(instName)
@@ -224,7 +296,22 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown instrument %q", instName))
 			return
 		}
-		cfg.Instruments[piece] = inst
+		cfg.FileInstruments[idx] = inst
+	}
+
+	// Per-piece rhythm overrides: each kind of piece plays a named groove.
+	// Unspecified pieces keep their default rhythm.
+	for pieceName, rhythmName := range req.Rhythms {
+		piece, ok := pieceByName[pieceName]
+		if !ok {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown piece %q", pieceName))
+			return
+		}
+		if !music.ValidRhythm(rhythmName) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown rhythm %q", rhythmName))
+			return
+		}
+		cfg.PieceRhythms[piece] = rhythmName
 	}
 
 	score := music.Build(game, cfg)

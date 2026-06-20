@@ -227,6 +227,48 @@ button:disabled {
     margin-top: 0.5rem;
 }
 
+.subhead {
+    margin: 1.1rem 0 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.instrument-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: stretch;
+}
+
+.instrument-row select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.preview-btn {
+    flex: 0 0 auto;
+    padding: 0 0.7rem;
+    font-size: 0.8rem;
+    line-height: 1;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.preview-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.preview-btn.playing {
+    background: var(--accent-strong);
+    color: white;
+    border-color: var(--accent-strong);
+}
+
 a.download {
     display: inline-block;
     text-decoration: none;
