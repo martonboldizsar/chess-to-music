@@ -440,11 +440,16 @@
             if (matches) {
                 game.move({ from, to, promotion: "q" });
                 syncPositionFromGame();
-                correct += 1;
                 lastFrom = from;
                 lastTo = to;
-                feedback = "Correct!";
-                feedbackKind = "good";
+                if (revealed) {
+                    feedback = "Answer was shown — not counted.";
+                    feedbackKind = "bad";
+                } else {
+                    correct += 1;
+                    feedback = "Correct!";
+                    feedbackKind = "good";
+                }
                 nextListenTargetAfterDelay();
             } else {
                 feedback = "Right move type? Listen again.";
@@ -466,12 +471,17 @@
             return;
         }
         if (to === target.square) {
-            correct += 1;
             position = { [to]: { type: char, color } };
             lastFrom = from;
             lastTo = to;
-            feedback = "Correct!";
-            feedbackKind = "good";
+            if (revealed) {
+                feedback = "Answer was shown — not counted.";
+                feedbackKind = "bad";
+            } else {
+                correct += 1;
+                feedback = "Correct!";
+                feedbackKind = "good";
+            }
             nextPieceTargetAfterDelay(to);
         } else {
             feedback = "Not the square the note named.";
@@ -513,10 +523,15 @@
     function attemptFindGuess(square) {
         total += 1;
         if (square === target.square) {
-            correct += 1;
             lastTo = square;
-            feedback = "Correct!";
-            feedbackKind = "good";
+            if (revealed) {
+                feedback = "Answer was shown — not counted.";
+                feedbackKind = "bad";
+            } else {
+                correct += 1;
+                feedback = "Correct!";
+                feedbackKind = "good";
+            }
             nextFindTargetAfterDelay();
         } else {
             feedback = "Not the square the note named.";
