@@ -169,15 +169,17 @@ var voices = [music.InstrumentCount]voice{
 		decay:      1.5,
 		bright:     1.0,
 	},
-	// Guitar (g-file): a warm plucked string — a soft pluck with a full, rounded
-	// spectrum and a medium decay that mellows as it rings. Clearly plucked (not
-	// bowed), warmer than the piano and far longer than the pizzicato.
-	music.InstGuitar: {
-		harmonics:  []float64{1, 0.8, 0.62, 0.45, 0.3, 0.2, 0.12, 0.06},
-		attack:     0.005,
+	// Bass guitar (g-file): a deep, round plucked bass string — a soft finger
+	// pluck dominated by a sub-octave with only a few low harmonics, so it sits
+	// an octave below the piano and reads as fat and dark rather than bright and
+	// struck. Clearly the low plucked voice, unmistakable next to the piano.
+	music.InstBassGuitar: {
+		harmonics:  []float64{1, 0.55, 0.28, 0.12, 0.05},
+		subOctave:  0.9,
+		attack:     0.006,
 		percussive: true,
-		decay:      0.75,
-		bright:     0.9,
+		decay:      0.7,
+		bright:     1.6,
 	},
 	// Xylophone (h-file): a bright wooden mallet — a hard "ting" with a strong
 	// upper partial that decays almost instantly to a pure tone. The shortest,

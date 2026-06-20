@@ -208,7 +208,7 @@ starts; the container needs ~512 MB to render video comfortably.
   - the **row** (1–8) sets an in-scale pitch within about one hummable octave;
   - the **column** (a–h) chooses the instrument — by default eight deliberately
     very different voices (tuba, jaw harp, organ, horn, pizzicato viola, piano,
-    guitar, xylophone) so an untrained ear can still hear which file a move
+    bass guitar, xylophone) so an untrained ear can still hear which file a move
     landed on, and each file's instrument can be remapped via the web UI or the
     API;
   - the **piece type** plays a recognisable rhythmic figure inside the bar (by

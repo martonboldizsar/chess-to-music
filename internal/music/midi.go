@@ -39,14 +39,14 @@ func accompChannel(v AccVoice) byte {
 // gmProgram gives each Instrument a General MIDI program number (0-based) so a
 // standard synthesiser plays each chess piece with its own voice.
 var gmProgram = [InstrumentCount]byte{
-	InstPiano:     0,   // Acoustic Grand Piano
-	InstHorn:      60,  // French Horn
-	InstOrgan:     19,  // Church Organ
-	InstTuba:      58,  // Tuba
-	InstGuitar:    24,  // Acoustic Guitar (nylon)
-	InstJawHarp:   108, // Kalimba (closest plucked-metal voice to a jaw harp)
-	InstViola:     45,  // Pizzicato Strings
-	InstXylophone: 13,  // Xylophone
+	InstPiano:      0,   // Acoustic Grand Piano
+	InstHorn:       60,  // French Horn
+	InstOrgan:      19,  // Church Organ
+	InstTuba:       58,  // Tuba
+	InstBassGuitar: 33,  // Electric Bass (finger)
+	InstJawHarp:    108, // Kalimba (closest plucked-metal voice to a jaw harp)
+	InstViola:      45,  // Pizzicato Strings
+	InstXylophone:  13,  // Xylophone
 }
 
 // midiChannel assigns each instrument a dedicated MIDI channel, skipping the

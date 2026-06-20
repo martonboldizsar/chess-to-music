@@ -13,28 +13,28 @@ import (
 type Instrument int
 
 const (
-	InstPiano     Instrument = iota // struck string, long ring
-	InstHorn                        // bright sustained brass
-	InstOrgan                       // hollow reed organ with a tremolo pulse
-	InstTuba                        // deep sustained sub-octave drone
-	InstGuitar                      // warm plucked string
-	InstJawHarp                     // twangy plucked metal with a sweeping formant
-	InstViola                       // short woody pizzicato pluck
-	InstXylophone                   // bright, short mallet "ting"
+	InstPiano      Instrument = iota // struck string, long ring
+	InstHorn                         // bright sustained brass
+	InstOrgan                        // hollow reed organ with a tremolo pulse
+	InstTuba                         // deep sustained sub-octave drone
+	InstBassGuitar                   // deep, round plucked bass string
+	InstJawHarp                      // twangy plucked metal with a sweeping formant
+	InstViola                        // short woody pizzicato pluck
+	InstXylophone                    // bright, short mallet "ting"
 	InstrumentCount
 )
 
 // instrumentNames are the stable identifiers used by the CLI/API and the web
 // UI to refer to instruments. The order matches the Instrument constants.
 var instrumentNames = [InstrumentCount]string{
-	InstPiano:     "piano",
-	InstHorn:      "horn",
-	InstOrgan:     "organ",
-	InstTuba:      "tuba",
-	InstGuitar:    "guitar",
-	InstJawHarp:   "jaw harp",
-	InstViola:     "viola",
-	InstXylophone: "xylophone",
+	InstPiano:      "piano",
+	InstHorn:       "horn",
+	InstOrgan:      "organ",
+	InstTuba:       "tuba",
+	InstBassGuitar: "bass guitar",
+	InstJawHarp:    "jaw harp",
+	InstViola:      "viola",
+	InstXylophone:  "xylophone",
 }
 
 // String returns the stable identifier for an instrument.
@@ -307,14 +307,14 @@ func (cfg Config) resolve(game *pgn.Game) Config {
 // lengths, a bright mallet — so an untrained ear can tell which file a move
 // landed on. Users can override any of these via Config.
 var defaultFileInstruments = [8]Instrument{
-	InstTuba,      // a-file: deep sustained drone
-	InstJawHarp,   // b-file: twangy plucked metal
-	InstOrgan,     // c-file: pulsing reed organ
-	InstHorn,      // d-file: bright sustained brass
-	InstViola,     // e-file: short woody pizzicato
-	InstPiano,     // f-file: struck string, long ring
-	InstGuitar,    // g-file: warm plucked string
-	InstXylophone, // h-file: bright mallet "ting"
+	InstTuba,       // a-file: deep sustained drone
+	InstJawHarp,    // b-file: twangy plucked metal
+	InstOrgan,      // c-file: pulsing reed organ
+	InstHorn,       // d-file: bright sustained brass
+	InstViola,      // e-file: short woody pizzicato
+	InstPiano,      // f-file: struck string, long ring
+	InstBassGuitar, // g-file: deep, round plucked bass string
+	InstXylophone,  // h-file: bright mallet "ting"
 }
 
 // fileInstrument returns the file's timbre, honouring the per-file overrides in
@@ -633,7 +633,7 @@ func (cfg Config) renderMotif(degrees []int, velocity int, san string) []Note {
 			Duration:   cfg.Beat,
 			Velocity:   velocity,
 			Color:      pgn.White,
-			Instrument: InstGuitar, // a clear plucked lead for the hook
+			Instrument: InstXylophone, // a clear, bright plucked lead for the hook
 			SAN:        san,
 		})
 	}
@@ -684,7 +684,7 @@ func (cfg Config) outroChorus(game *pgn.Game) []Note {
 		Duration:   dur,
 		Velocity:   openingMotifVelocity,
 		Color:      pgn.White,
-		Instrument: InstGuitar,
+		Instrument: InstXylophone,
 		SAN:        "ending",
 	})
 	return chorus
