@@ -37,7 +37,8 @@
         king: "k",
     };
 
-    let mode = $state("listen"); // "listen" (random game) | "piece" (one piece)
+    // "listen" (random game) | "piece" (one piece) | "find" (tap the square)
+    let mode = $state("listen");
     let chosenPiece = $state("knight");
     let chosenColor = $state("white");
     let theme = $state("lichess"); // board colours: "lichess" | "chesscom"
@@ -300,6 +301,24 @@
         };
     }
 
+    // --- Find-the-square mode (empty board, tap the named square) ------------
+
+    function nextFindTarget() {
+        // Empty board: the note alone names a square (pitch = rank, instrument
+        // = file). A random piece supplies the rhythm so it sounds like a real
+        // move, but it has no bearing on the answer.
+        position = {};
+        const f = Math.floor(Math.random() * 8);
+        const r = 1 + Math.floor(Math.random() * 8);
+        const pieceName = randomFrom(pieces.length ? pieces : ["pawn"]);
+        target = {
+            square: sq(f, r),
+            pieceName,
+            color: "white",
+            char: nameToChar[pieceName],
+        };
+    }
+
     function startRound() {
         started = true;
         correct = 0;
@@ -325,6 +344,8 @@
         if (mode === "listen") {
             if (fresh) newListenPosition();
             nextListenTarget();
+        } else if (mode === "find") {
+            nextFindTarget();
         } else {
             if (fresh || Object.keys(position).length === 0) {
                 const from = placePracticePiece();
@@ -343,7 +364,10 @@
 
     function reveal() {
         revealed = true;
-        feedback = `${prettyPiece(target.pieceName)} → ${target.square.toUpperCase()}`;
+        feedback =
+            mode === "find"
+                ? `Square → ${target.square.toUpperCase()}`
+                : `${prettyPiece(target.pieceName)} → ${target.square.toUpperCase()}`;
         feedbackKind = "";
     }
 
@@ -366,6 +390,10 @@
 
     function onSquareClick(square) {
         if (!started || !target) return;
+        if (mode === "find") {
+            attemptFindGuess(square);
+            return;
+        }
         if (selected && square === selected) {
             selected = "";
             legalTargets = [];
@@ -482,6 +510,36 @@
         }, 650);
     }
 
+    function attemptFindGuess(square) {
+        total += 1;
+        if (square === target.square) {
+            correct += 1;
+            lastTo = square;
+            feedback = "Correct!";
+            feedbackKind = "good";
+            nextFindTargetAfterDelay();
+        } else {
+            feedback = "Not the square the note named.";
+            feedbackKind = "bad";
+            flashWrong(square);
+        }
+    }
+
+    function nextFindTargetAfterDelay() {
+        setTimeout(() => {
+            selected = "";
+            legalTargets = [];
+            wrongSquare = "";
+            revealed = false;
+            lastFrom = "";
+            lastTo = "";
+            feedback = "";
+            feedbackKind = "";
+            nextFindTarget();
+            replay();
+        }, 650);
+    }
+
     function onMove(from, to) {
         if (!started || !target) return;
         attemptMove(from, to);
@@ -526,6 +584,13 @@
         >
             Single piece
         </button>
+        <button
+            type="button"
+            class:active={mode === "find"}
+            onclick={() => switchMode("find")}
+        >
+            Find the square
+        </button>
     </div>
 
     {#if mode === "listen"}
@@ -534,6 +599,13 @@
             <strong>pitch</strong> is the rank, the <strong>instrument</strong>
             the file, the <strong>rhythm</strong> the piece — then move a matching
             piece to the named square.
+        </p>
+    {:else if mode === "find"}
+        <p class="hint">
+            A note plays for one square on an empty board. Decode the
+            <strong>pitch</strong> (rank) and <strong>instrument</strong> (file)
+            and tap that square. The <strong>rhythm</strong> just tells you which
+            piece is speaking.
         </p>
     {:else}
         <p class="hint">
