@@ -867,6 +867,42 @@ func noteFor(mv pgn.Move, cfg Config) Note {
 	return n
 }
 
+// NoteForSquare builds the single Note that a piece of the given kind and
+// colour produces when it lands on the destination square (file 0='a'..7='h',
+// rank 0='1'..7='8'). It is the practice-mode counterpart to noteFor: the same
+// rank→pitch, file→instrument and piece→rhythm mapping, so a note auditioned
+// while practising sounds exactly like that move would in a rendered game.
+func NoteForSquare(file, rank int, piece pgn.Piece, color pgn.Color, cfg Config) Note {
+	cfg = cfg.resolveStandalone()
+	mv := pgn.Move{
+		Color: color,
+		Piece: piece,
+		File:  file,
+		Rank:  rank,
+	}
+	return noteFor(mv, cfg)
+}
+
+// resolveStandalone fills in any "auto"/invalid config fields with safe
+// defaults when there is no game to derive them from (e.g. for a single
+// practice note). A "auto" key falls back to C so the note is still in a
+// concrete key.
+func (cfg Config) resolveStandalone() Config {
+	if cfg.Scale < 0 || cfg.Scale >= ScaleTypeCount {
+		cfg.Scale = ScaleMajorPentatonic
+	}
+	if cfg.Key < 0 || cfg.Key > 11 {
+		cfg.Key = 0
+	}
+	if cfg.Beat <= 0 {
+		cfg.Beat = 2
+	}
+	if cfg.Meter <= 0 {
+		cfg.Meter = 4
+	}
+	return cfg
+}
+
 // velocityFor maps move annotations to loudness: captures are accented, checks
 // louder still, and checkmate is the loudest, most emphatic event.
 func velocityFor(mv pgn.Move) int {

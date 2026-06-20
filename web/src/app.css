@@ -291,3 +291,387 @@ a.download {
         transform: rotate(360deg);
     }
 }
+
+/* --- Tabs ---------------------------------------------------------------- */
+.tabs {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 8px 8px 0 0;
+    padding: 0.6rem 1.1rem;
+    font-size: 0.95rem;
+}
+
+.tabs button:hover {
+    color: var(--text);
+}
+
+.tabs button.active {
+    color: var(--text);
+    border-bottom-color: var(--accent-strong);
+}
+
+/* --- Practice ------------------------------------------------------------ */
+.practice {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.mode-switch {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.9rem;
+}
+
+.mode-switch button {
+    flex: 1 1 0;
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+}
+
+.mode-switch button.active {
+    color: white;
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
+}
+
+.piece-pickers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem;
+    margin-bottom: 0.9rem;
+}
+
+.board-style {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+
+.board-style label {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.board-style select {
+    width: auto;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.9rem;
+}
+
+.scoreboard {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.75rem;
+    margin: 0.2rem 0 0.9rem;
+}
+
+.score-num {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.score-den {
+    color: var(--muted);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.score-acc {
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+.score-reset {
+    margin: 0;
+    padding: 0.2rem 0.6rem;
+    width: auto;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition:
+        color 0.12s,
+        border-color 0.12s,
+        background 0.12s;
+}
+
+.score-reset:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--muted);
+    background: rgba(127, 127, 127, 0.08);
+}
+
+.score-reset:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.feedback {
+    text-align: center;
+    margin: 0.8rem 0 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.feedback.good {
+    color: #6bd49a;
+}
+
+.feedback.bad {
+    color: var(--danger);
+}
+
+.practice-actions {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+}
+
+.hint-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0;
+    cursor: pointer;
+}
+
+.hint-toggle input {
+    width: auto;
+    margin: 0;
+}
+
+.key-toggle {
+    align-self: center;
+    margin-top: 1rem;
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+}
+
+.key-toggle:hover {
+    color: var(--text);
+}
+
+.sound-key {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-top: 0.3rem;
+}
+
+.sound-key h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+}
+
+.sound-key ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.85rem;
+}
+
+.sound-key li {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+}
+
+.sound-key .k-file,
+.sound-key .k-piece {
+    display: inline-block;
+    min-width: 1.4rem;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.sound-key .k-piece {
+    min-width: 3.6rem;
+}
+
+/* --- Board --------------------------------------------------------------- */
+.board {
+    --sq-light: #f0d9b5;
+    --sq-dark: #b58863;
+    --piece-white-fill: #f7f7f2;
+    --piece-white-outline: #332a22;
+    --piece-black-fill: #2b2722;
+    --piece-black-outline: #0a0806;
+    --hl: rgba(205, 210, 106, 0.85);
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    width: 100%;
+    max-width: 460px;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.board.theme-lichess {
+    --sq-light: #f0d9b5;
+    --sq-dark: #b58863;
+    --piece-white-fill: #f7f7f2;
+    --piece-white-outline: #332a22;
+    --piece-black-fill: #2b2722;
+    --piece-black-outline: #0a0806;
+    --hl: rgba(205, 210, 106, 0.85);
+}
+
+.board.theme-chesscom {
+    --sq-light: #eeeed2;
+    --sq-dark: #769656;
+    --piece-white-fill: #fafafa;
+    --piece-white-outline: #404040;
+    --piece-black-fill: #333333;
+    --piece-black-outline: #080808;
+    --hl: rgba(246, 246, 105, 0.78);
+}
+
+.board.locked {
+    opacity: 0.85;
+}
+
+.square {
+    position: relative;
+    border: none;
+    border-radius: 0;
+    margin: 0;
+    padding: 0;
+    background: var(--sq-light);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.1s;
+}
+
+.square.dark {
+    background: var(--sq-dark);
+}
+
+.square.selected {
+    box-shadow: inset 0 0 0 100px var(--hl);
+}
+
+.square.target {
+    cursor: pointer;
+}
+
+.square.hint {
+    box-shadow: inset 0 0 0 4px rgba(124, 156, 255, 0.85);
+}
+
+.square.last {
+    box-shadow: inset 0 0 0 100px var(--hl);
+}
+
+.square.wrong {
+    background: #d46b6b;
+}
+
+.square .piece {
+    font-size: clamp(1.6rem, 8vw, 2.7rem);
+    line-height: 1;
+    cursor: grab;
+    color: var(--piece-black-fill);
+    -webkit-text-stroke: 1.4px var(--piece-black-outline);
+    paint-order: stroke fill;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+.square .piece.white {
+    color: var(--piece-white-fill);
+    -webkit-text-stroke: 1.4px var(--piece-white-outline);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+
+.square .piece:active {
+    cursor: grabbing;
+}
+
+/* Detached image shown under the cursor while dragging a piece. Kept off
+   screen and transparent so only the glyph travels with the pointer. */
+.drag-ghost {
+    position: fixed;
+    top: -1000px;
+    left: -1000px;
+    margin: 0;
+    padding: 0;
+    line-height: 1;
+    background: transparent;
+    pointer-events: none;
+    paint-order: stroke fill;
+}
+
+.square .dot {
+    position: absolute;
+    width: 26%;
+    height: 26%;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.28);
+    pointer-events: none;
+}
+
+.square .coord {
+    position: absolute;
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+}
+
+.square.dark .coord {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.square .coord.rank {
+    top: 2px;
+    left: 3px;
+}
+
+.square .coord.file {
+    bottom: 1px;
+    right: 3px;
+}

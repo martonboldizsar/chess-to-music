@@ -92,10 +92,21 @@ Only the first game in a PGN file is rendered.
 
 ## Web UI
 
-A small Svelte 5 frontend (built with [Bun](https://bun.sh)) lets you paste or
-upload a game, customise the column instruments and per-piece rhythms, and pick
-the output: either an **MP3** to play/download, or an **animated MP4** of the
-board in a Lichess or Chess.com view, synced to the music.
+A small Svelte 5 frontend (built with [Bun](https://bun.sh)) is organised into
+three tabs:
+
+- **Compose** — paste or upload a game and pick the output: either an **MP3** to
+  play/download, or an **animated MP4** of the board in a Lichess or Chess.com
+  view, synced to the music.
+- **Practice** — train your ear. A note plays and you move the matching piece to
+  the square it names (the pitch is the rank, the instrument the file, the
+  rhythm the piece). *Listen & move* quizzes you on a random legal position;
+  *Single piece* sends one piece roaming an empty board. A running score tracks
+  correct moves out of total, with replay-note, show-answer and target-square
+  hints. Play by clicking source-then-target or by dragging.
+- **Settings** — customise the column instruments (with a hear-sample button per
+  voice) and per-piece rhythms, scale, key, tempo and base octave. These apply
+  to both composing and practising.
 
 The quickest way to run the whole stack (app + Postgres) is Docker:
 
@@ -147,6 +158,8 @@ is unreachable, the server logs a warning and disables only the library.
 | Endpoint          | Method | Description                                                                                  |
 | ----------------- | ------ | -------------------------------------------------------------------------------------------- |
 | `/api/options`    | GET    | Lists pieces, instruments, scales, keys, files, rhythm patterns, the default file→instrument and piece→rhythm maps, and the available board views |
+| `/api/preview`    | GET    | `?instrument=<name>` → a short MP3/WAV phrase auditioning a single instrument |
+| `/api/note`       | POST   | JSON `{file, rank, piece, color, tempo, baseOctave, scale, key, fileInstruments, rhythms}` → the single MP3/WAV note that move makes (powers Practice) |
 | `/api/generate`   | POST   | JSON `{pgn, tempo, baseOctave, scale, key, fileInstruments, rhythms, format, boardTheme}` → MP3/WAV audio or MP4 video |
 | `/api/games`      | GET    | Lists saved games (built-in library first), without PGN bodies                               |
 | `/api/games/{id}` | GET    | Returns one saved game including its PGN                                                      |

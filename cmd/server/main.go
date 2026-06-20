@@ -121,6 +121,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/options", handleOptions)
 	mux.HandleFunc("GET /api/preview", handlePreview)
+	mux.HandleFunc("POST /api/note", handleNote)
 	mux.HandleFunc("POST /api/generate", handleGenerate)
 	mux.HandleFunc("GET /api/games", srv.handleListGames)
 	mux.HandleFunc("GET /api/games/{id}", srv.handleGetGame)
@@ -235,6 +236,140 @@ func handlePreview(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// buildConfig starts from the default config and applies the optional overrides
+// shared by the generate and note endpoints: tempo, base octave, scale, key,
+// per-file instruments and per-piece rhythms. It returns an error describing the
+// first invalid override, so callers can surface it as a 400.
+func buildConfig(tempo, baseOctave int, scale, key string, fileInstruments, rhythms map[string]string) (music.Config, error) {
+	cfg := music.DefaultConfig()
+	if tempo >= 20 && tempo <= 400 {
+		cfg.Tempo = tempo
+	}
+	if baseOctave >= 1 && baseOctave <= 7 {
+		cfg.BaseOctave = baseOctave
+	}
+	if scale != "" {
+		s, ok := music.ParseScale(scale)
+		if !ok {
+			return cfg, fmt.Errorf("unknown scale %q", scale)
+		}
+		cfg.Scale = s
+	}
+	if key != "" {
+		k, ok := music.ParseKey(key)
+		if !ok {
+			return cfg, fmt.Errorf("unknown key %q", key)
+		}
+		cfg.Key = k
+	}
+	// Per-file instrument overrides: each file a–h chooses the timbre of moves
+	// that land on it. Unspecified files keep their default voice.
+	for fileName, instName := range fileInstruments {
+		idx, ok := fileIndex(fileName)
+		if !ok {
+			return cfg, fmt.Errorf("unknown file %q", fileName)
+		}
+		inst, ok := music.ParseInstrument(instName)
+		if !ok {
+			return cfg, fmt.Errorf("unknown instrument %q", instName)
+		}
+		cfg.FileInstruments[idx] = inst
+	}
+	// Per-piece rhythm overrides: each kind of piece plays a named groove.
+	// Unspecified pieces keep their default rhythm.
+	for pieceName, rhythmName := range rhythms {
+		piece, ok := pieceByName[pieceName]
+		if !ok {
+			return cfg, fmt.Errorf("unknown piece %q", pieceName)
+		}
+		if !music.ValidRhythm(rhythmName) {
+			return cfg, fmt.Errorf("unknown rhythm %q", rhythmName)
+		}
+		cfg.PieceRhythms[piece] = rhythmName
+	}
+	return cfg, nil
+}
+
+// noteRequest is the JSON body accepted by POST /api/note: a single destination
+// square plus the piece that lands on it and the active sound settings, so the
+// practice mode can audition the exact note a move would make.
+type noteRequest struct {
+	File            string            `json:"file"`  // destination file "a".."h"
+	Rank            int               `json:"rank"`  // destination rank 1..8
+	Piece           string            `json:"piece"` // "pawn".."king"
+	Color           string            `json:"color"` // "white" or "black"
+	Tempo           int               `json:"tempo"`
+	BaseOctave      int               `json:"baseOctave"`
+	Scale           string            `json:"scale"`
+	Key             string            `json:"key"`
+	FileInstruments map[string]string `json:"fileInstruments"`
+	Rhythms         map[string]string `json:"rhythms"`
+}
+
+// handleNote renders the single note a given piece makes when it lands on a
+// given square, honouring the current sound settings. It powers the practice
+// mode, where the player hears a note and must move the matching piece to the
+// matching square.
+func handleNote(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req noteRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
+		return
+	}
+
+	fileIdx, ok := fileIndex(strings.ToLower(req.File))
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown file %q", req.File))
+		return
+	}
+	if req.Rank < 1 || req.Rank > 8 {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("rank %d out of range (1..8)", req.Rank))
+		return
+	}
+	piece, ok := pieceByName[strings.ToLower(req.Piece)]
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown piece %q", req.Piece))
+		return
+	}
+	color := pgn.White
+	switch strings.ToLower(req.Color) {
+	case "", "white", "w":
+		color = pgn.White
+	case "black", "b":
+		color = pgn.Black
+	default:
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown color %q", req.Color))
+		return
+	}
+
+	cfg, err := buildConfig(req.Tempo, req.BaseOctave, req.Scale, req.Key, req.FileInstruments, req.Rhythms)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	note := music.NoteForSquare(fileIdx, req.Rank-1, piece, color, cfg)
+	score := music.Score{Tempo: cfg.Tempo, Notes: []music.Note{note}}
+	wav := audio.RenderWAV(score)
+
+	mp3, err := audio.WAVToMP3Bytes(wav)
+	switch {
+	case err == nil:
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Write(mp3)
+	case errors.Is(err, audio.ErrNoFFmpeg):
+		w.Header().Set("Content-Type", "audio/wav")
+		w.Write(wav)
+	default:
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("audio conversion failed: %v", err))
+	}
+}
+
 // handleGenerate parses the PGN, builds the score with the requested instrument
 // mapping, and returns audio (MP3 if ffmpeg is available, otherwise WAV).
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
@@ -259,59 +394,10 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := music.DefaultConfig()
-	if req.Tempo >= 20 && req.Tempo <= 400 {
-		cfg.Tempo = req.Tempo
-	}
-	if req.BaseOctave >= 1 && req.BaseOctave <= 7 {
-		cfg.BaseOctave = req.BaseOctave
-	}
-	if req.Scale != "" {
-		scale, ok := music.ParseScale(req.Scale)
-		if !ok {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown scale %q", req.Scale))
-			return
-		}
-		cfg.Scale = scale
-	}
-	if req.Key != "" {
-		key, ok := music.ParseKey(req.Key)
-		if !ok {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown key %q", req.Key))
-			return
-		}
-		cfg.Key = key
-	}
-
-	// Per-file instrument overrides: each file a–h chooses the timbre of moves
-	// that land on it. Unspecified files keep their default voice.
-	for fileName, instName := range req.FileInstruments {
-		idx, ok := fileIndex(fileName)
-		if !ok {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown file %q", fileName))
-			return
-		}
-		inst, ok := music.ParseInstrument(instName)
-		if !ok {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown instrument %q", instName))
-			return
-		}
-		cfg.FileInstruments[idx] = inst
-	}
-
-	// Per-piece rhythm overrides: each kind of piece plays a named groove.
-	// Unspecified pieces keep their default rhythm.
-	for pieceName, rhythmName := range req.Rhythms {
-		piece, ok := pieceByName[pieceName]
-		if !ok {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown piece %q", pieceName))
-			return
-		}
-		if !music.ValidRhythm(rhythmName) {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown rhythm %q", rhythmName))
-			return
-		}
-		cfg.PieceRhythms[piece] = rhythmName
+	cfg, err := buildConfig(req.Tempo, req.BaseOctave, req.Scale, req.Key, req.FileInstruments, req.Rhythms)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	score := music.Build(game, cfg)

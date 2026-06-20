@@ -4,6 +4,8 @@
     // The user pastes or uploads a PGN game, optionally remaps which piece plays
     // which instrument, then generates audio they can play here or download.
 
+    import Practice from "./Practice.svelte";
+
     const SAMPLE_PGN = `[Event "Immortal Game"]
 [White "Adolf Anderssen"]
 [Black "Lionel Kieseritzky"]
@@ -20,6 +22,9 @@
     let baseOctave = $state(4);
     let scale = $state("major-pentatonic"); // melody scale
     let musicalKey = $state("C"); // tonic, or "auto" to derive from the game
+
+    // Which part of the app is showing: compose music, practice, or settings.
+    let tab = $state("compose"); // "compose" | "practice" | "settings"
 
     let pieces = $state([]);
     let instruments = $state([]);
@@ -315,6 +320,17 @@
         !!selectedGameId &&
             !games.find((g) => String(g.id) === selectedGameId)?.builtin,
     );
+
+    // The sound settings shared by the music generator and the practice mode, so
+    // a note heard while practising matches exactly what the game would render.
+    const soundConfig = $derived({
+        tempo: Number(tempo),
+        baseOctave: Number(baseOctave),
+        scale,
+        key: musicalKey,
+        fileInstruments,
+        rhythms: pieceRhythms,
+    });
 </script>
 
 <div class="wrap">
@@ -326,254 +342,317 @@
         </p>
     </header>
 
-    <section class="panel">
-        <h2>1. The game (PGN)</h2>
+    <nav class="tabs">
+        <button
+            type="button"
+            class:active={tab === "compose"}
+            onclick={() => (tab = "compose")}
+        >
+            Compose
+        </button>
+        <button
+            type="button"
+            class:active={tab === "practice"}
+            onclick={() => (tab = "practice")}
+        >
+            Practice
+        </button>
+        <button
+            type="button"
+            class:active={tab === "settings"}
+            onclick={() => (tab = "settings")}
+        >
+            Settings
+        </button>
+    </nav>
 
-        {#if libraryAvailable}
-            <div class="field" style="margin-bottom:1rem">
-                <label for="library">Pick a saved game</label>
-                <div class="library-row">
-                    <select
-                        id="library"
-                        value={selectedGameId}
-                        onchange={onSelectGame}
-                    >
-                        <option value="">— Choose from the library —</option>
-                        {#each games as g (g.id)}
-                            <option value={String(g.id)}>
-                                {g.builtin ? "★ " : ""}{gameLabel(g)}
-                            </option>
-                        {/each}
-                    </select>
-                    {#if canDelete}
-                        <button
-                            type="button"
-                            class="btn-danger"
-                            onclick={deleteGame}
-                            disabled={deleting}
-                            title="Delete this game from the library"
-                        >
-                            {#if deleting}<span class="spinner"
-                                ></span>Deleting…{:else}Delete{/if}
-                        </button>
-                    {/if}
-                </div>
-            </div>
-        {/if}
+    {#if tab === "compose"}
+        <section class="panel">
+            <h2>The game (PGN)</h2>
 
-        <label for="pgn">Paste or edit the game below</label>
-        <textarea id="pgn" bind:value={pgn} spellcheck="false"></textarea>
-        <div class="row file-row">
-            <input
-                type="file"
-                accept=".pgn,text/plain"
-                bind:this={fileInput}
-                onchange={onFile}
-            />
-        </div>
-        <p class="hint">
-            Standard PGN export from chess.com or lichess works. Only the first
-            game is rendered.
-        </p>
-
-        {#if libraryAvailable}
-            <div class="save-row">
-                <input
-                    type="text"
-                    class="save-title"
-                    placeholder="Title (optional)"
-                    bind:value={saveTitle}
-                />
-                <button
-                    class="btn-ghost"
-                    onclick={saveGame}
-                    disabled={saving || !pgn.trim()}
-                >
-                    {#if saving}<span class="spinner"></span>Saving…{:else}Save
-                        to library{/if}
-                </button>
-            </div>
-            {#if saveMessage}
-                <p class="hint" style="color:var(--accent)">{saveMessage}</p>
-            {/if}
-        {/if}
-    </section>
-
-    <section class="panel">
-        <h2>2. Sound</h2>
-
-        <p class="hint">
-            Each move's <strong>row</strong> sets the pitch (one hummable
-            octave), the <strong>column</strong> (file) picks the instrument,
-            and the <strong>piece</strong> plays its own rhythm — so games are easy
-            to learn and recall by ear. Customise the column instruments and piece
-            rhythms below.
-        </p>
-
-        <h3 class="subhead">Column instruments</h3>
-        <div class="grid">
-            {#each files as f (f)}
-                <div class="field">
-                    <label for={`file-${f}`}>{prettyFile(f)}</label>
-                    <div class="instrument-row">
+            {#if libraryAvailable}
+                <div class="field" style="margin-bottom:1rem">
+                    <label for="library">Pick a saved game</label>
+                    <div class="library-row">
                         <select
-                            id={`file-${f}`}
-                            bind:value={fileInstruments[f]}
+                            id="library"
+                            value={selectedGameId}
+                            onchange={onSelectGame}
                         >
-                            {#each instruments as inst (inst)}
-                                <option value={inst}
-                                    >{prettyInstrument(inst)}</option
-                                >
+                            <option value="">— Choose from the library —</option
+                            >
+                            {#each games as g (g.id)}
+                                <option value={String(g.id)}>
+                                    {g.builtin ? "★ " : ""}{gameLabel(g)}
+                                </option>
                             {/each}
                         </select>
-                        <button
-                            type="button"
-                            class="preview-btn"
-                            class:playing={previewing === fileInstruments[f]}
-                            title={`Hear ${prettyInstrument(fileInstruments[f] ?? "")}`}
-                            aria-label={`Hear ${prettyInstrument(fileInstruments[f] ?? "")} sample`}
-                            onclick={() =>
-                                previewInstrument(fileInstruments[f])}
-                        >
-                            {previewing === fileInstruments[f] ? "■" : "▶"}
-                        </button>
+                        {#if canDelete}
+                            <button
+                                type="button"
+                                class="btn-danger"
+                                onclick={deleteGame}
+                                disabled={deleting}
+                                title="Delete this game from the library"
+                            >
+                                {#if deleting}<span class="spinner"
+                                    ></span>Deleting…{:else}Delete{/if}
+                            </button>
+                        {/if}
                     </div>
                 </div>
-            {/each}
-        </div>
+            {/if}
 
-        <h3 class="subhead">Piece rhythms</h3>
-        <div class="grid">
-            {#each pieces as piece (piece)}
-                <div class="field">
-                    <label for={`rhythm-${piece}`}>{prettyPiece(piece)}</label>
-                    <select
-                        id={`rhythm-${piece}`}
-                        bind:value={pieceRhythms[piece]}
-                    >
-                        {#each rhythms as r (r)}
-                            <option value={r}>{prettyRhythm(r)}</option>
-                        {/each}
-                    </select>
-                </div>
-            {/each}
-        </div>
-
-        <div class="grid">
-            <div class="field">
-                <label for="scale">Scale</label>
-                <select id="scale" bind:value={scale}>
-                    {#each scales as s (s)}
-                        <option value={s}>{prettyScale(s)}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class="field">
-                <label for="key">Key</label>
-                <select id="key" bind:value={musicalKey}>
-                    {#each keys as k (k)}
-                        <option value={k}>{prettyKey(k)}</option>
-                    {/each}
-                </select>
-            </div>
-        </div>
-
-        <div class="sliders">
-            <div class="field">
-                <label for="tempo">Tempo: {tempo} BPM</label>
+            <label for="pgn">Paste or edit the game below</label>
+            <textarea id="pgn" bind:value={pgn} spellcheck="false"></textarea>
+            <div class="row file-row">
                 <input
-                    id="tempo"
-                    type="range"
-                    min="40"
-                    max="240"
-                    bind:value={tempo}
+                    type="file"
+                    accept=".pgn,text/plain"
+                    bind:this={fileInput}
+                    onchange={onFile}
                 />
             </div>
-            <div class="field">
-                <label for="octave">Base octave: {baseOctave}</label>
-                <input
-                    id="octave"
-                    type="range"
-                    min="2"
-                    max="6"
-                    bind:value={baseOctave}
-                />
-            </div>
-        </div>
-    </section>
-
-    <section class="panel">
-        <h2>3. Output</h2>
-        <div class="grid">
-            <div class="field">
-                <label for="format">Format</label>
-                <select id="format" bind:value={outputFormat}>
-                    <option value="mp3">Audio (MP3)</option>
-                    <option value="mp4" disabled={!hasVideo}>
-                        Animated video (MP4)
-                    </option>
-                </select>
-            </div>
-            {#if outputFormat === "mp4"}
-                <div class="field">
-                    <label for="view">Board view</label>
-                    <select id="view" bind:value={boardTheme}>
-                        {#each boardThemes as t (t.name)}
-                            <option value={t.name}>{t.label}</option>
-                        {/each}
-                    </select>
-                </div>
-            {/if}
-        </div>
-
-        <div class="actions" style="margin-top:1rem">
-            <button
-                class="btn-primary"
-                onclick={generate}
-                disabled={loading || !pgn.trim()}
-            >
-                {#if loading}<span class="spinner"></span>{outputFormat ===
-                    "mp4"
-                        ? "Rendering video…"
-                        : "Generating…"}{:else}{outputFormat === "mp4"
-                        ? "Generate video"
-                        : "Generate music"}{/if}
-            </button>
-            {#if !hasMp3}
-                <span class="hint"
-                    >ffmpeg not found on the server — output will be WAV.</span
-                >
-            {/if}
-            {#if !hasVideo}
-                <span class="hint"
-                    >Video needs ffmpeg on the server — MP4 is disabled.</span
-                >
-            {/if}
-        </div>
-
-        {#if outputFormat === "mp4"}
             <p class="hint">
-                The pieces slide across the board in time with the music. Longer
-                games take a little longer to render.
+                Standard PGN export from chess.com or lichess works. Only the
+                first game is rendered.
             </p>
-        {/if}
 
-        {#if error}
-            <p class="error" style="margin-top:1rem">{error}</p>
-        {/if}
-
-        {#if mediaUrl}
-            <div class="result" style="margin-top:1.25rem">
-                {#if isVideo}
-                    <!-- svelte-ignore a11y_media_has_caption -->
-                    <video controls src={mediaUrl} class="result-video"></video>
-                {:else}
-                    <audio controls src={mediaUrl}></audio>
+            {#if libraryAvailable}
+                <div class="save-row">
+                    <input
+                        type="text"
+                        class="save-title"
+                        placeholder="Title (optional)"
+                        bind:value={saveTitle}
+                    />
+                    <button
+                        class="btn-ghost"
+                        onclick={saveGame}
+                        disabled={saving || !pgn.trim()}
+                    >
+                        {#if saving}<span class="spinner"
+                            ></span>Saving…{:else}Save to library{/if}
+                    </button>
+                </div>
+                {#if saveMessage}
+                    <p class="hint" style="color:var(--accent)">
+                        {saveMessage}
+                    </p>
                 {/if}
-                <a class="download" href={mediaUrl} download={downloadName}>
-                    <button class="btn-ghost">Download {downloadLabel}</button>
-                </a>
+            {/if}
+        </section>
+    {/if}
+
+    {#if tab === "settings"}
+        <section class="panel">
+            <h2>Sound</h2>
+
+            <p class="hint">
+                These settings shape the music <em>and</em> the practice notes.
+                Each move's <strong>row</strong> sets the pitch (one hummable
+                octave), the
+                <strong>column</strong> (file) picks the instrument, and the
+                <strong>piece</strong> plays its own rhythm — so games are easy to
+                learn and recall by ear.
+            </p>
+
+            <h3 class="subhead">Column instruments</h3>
+            <div class="grid">
+                {#each files as f (f)}
+                    <div class="field">
+                        <label for={`file-${f}`}>{prettyFile(f)}</label>
+                        <div class="instrument-row">
+                            <select
+                                id={`file-${f}`}
+                                bind:value={fileInstruments[f]}
+                            >
+                                {#each instruments as inst (inst)}
+                                    <option value={inst}
+                                        >{prettyInstrument(inst)}</option
+                                    >
+                                {/each}
+                            </select>
+                            <button
+                                type="button"
+                                class="preview-btn"
+                                class:playing={previewing ===
+                                    fileInstruments[f]}
+                                title={`Hear ${prettyInstrument(fileInstruments[f] ?? "")}`}
+                                aria-label={`Hear ${prettyInstrument(fileInstruments[f] ?? "")} sample`}
+                                onclick={() =>
+                                    previewInstrument(fileInstruments[f])}
+                            >
+                                {previewing === fileInstruments[f] ? "■" : "▶"}
+                            </button>
+                        </div>
+                    </div>
+                {/each}
             </div>
-        {/if}
-    </section>
+
+            <h3 class="subhead">Piece rhythms</h3>
+            <div class="grid">
+                {#each pieces as piece (piece)}
+                    <div class="field">
+                        <label for={`rhythm-${piece}`}
+                            >{prettyPiece(piece)}</label
+                        >
+                        <select
+                            id={`rhythm-${piece}`}
+                            bind:value={pieceRhythms[piece]}
+                        >
+                            {#each rhythms as r (r)}
+                                <option value={r}>{prettyRhythm(r)}</option>
+                            {/each}
+                        </select>
+                    </div>
+                {/each}
+            </div>
+
+            <div class="grid">
+                <div class="field">
+                    <label for="scale">Scale</label>
+                    <select id="scale" bind:value={scale}>
+                        {#each scales as s (s)}
+                            <option value={s}>{prettyScale(s)}</option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="key">Key</label>
+                    <select id="key" bind:value={musicalKey}>
+                        {#each keys as k (k)}
+                            <option value={k}>{prettyKey(k)}</option>
+                        {/each}
+                    </select>
+                </div>
+            </div>
+
+            <div class="sliders">
+                <div class="field">
+                    <label for="tempo">Tempo: {tempo} BPM</label>
+                    <input
+                        id="tempo"
+                        type="range"
+                        min="40"
+                        max="240"
+                        bind:value={tempo}
+                    />
+                </div>
+                <div class="field">
+                    <label for="octave">Base octave: {baseOctave}</label>
+                    <input
+                        id="octave"
+                        type="range"
+                        min="2"
+                        max="6"
+                        bind:value={baseOctave}
+                    />
+                </div>
+            </div>
+        </section>
+    {/if}
+
+    {#if tab === "compose"}
+        <section class="panel">
+            <h2>Output</h2>
+            <div class="grid">
+                <div class="field">
+                    <label for="format">Format</label>
+                    <select id="format" bind:value={outputFormat}>
+                        <option value="mp3">Audio (MP3)</option>
+                        <option value="mp4" disabled={!hasVideo}>
+                            Animated video (MP4)
+                        </option>
+                    </select>
+                </div>
+                {#if outputFormat === "mp4"}
+                    <div class="field">
+                        <label for="view">Board view</label>
+                        <select id="view" bind:value={boardTheme}>
+                            {#each boardThemes as t (t.name)}
+                                <option value={t.name}>{t.label}</option>
+                            {/each}
+                        </select>
+                    </div>
+                {/if}
+            </div>
+
+            <div class="actions" style="margin-top:1rem">
+                <button
+                    class="btn-primary"
+                    onclick={generate}
+                    disabled={loading || !pgn.trim()}
+                >
+                    {#if loading}<span class="spinner"></span>{outputFormat ===
+                        "mp4"
+                            ? "Rendering video…"
+                            : "Generating…"}{:else}{outputFormat === "mp4"
+                            ? "Generate video"
+                            : "Generate music"}{/if}
+                </button>
+                {#if !hasMp3}
+                    <span class="hint"
+                        >ffmpeg not found on the server — output will be WAV.</span
+                    >
+                {/if}
+                {#if !hasVideo}
+                    <span class="hint"
+                        >Video needs ffmpeg on the server — MP4 is disabled.</span
+                    >
+                {/if}
+            </div>
+
+            {#if outputFormat === "mp4"}
+                <p class="hint">
+                    The pieces slide across the board in time with the music.
+                    Longer games take a little longer to render.
+                </p>
+            {/if}
+
+            {#if error}
+                <p class="error" style="margin-top:1rem">{error}</p>
+            {/if}
+
+            {#if mediaUrl}
+                <div class="result" style="margin-top:1.25rem">
+                    {#if isVideo}
+                        <!-- svelte-ignore a11y_media_has_caption -->
+                        <video controls src={mediaUrl} class="result-video"
+                        ></video>
+                    {:else}
+                        <audio controls src={mediaUrl}></audio>
+                    {/if}
+                    <a class="download" href={mediaUrl} download={downloadName}>
+                        <button class="btn-ghost"
+                            >Download {downloadLabel}</button
+                        >
+                    </a>
+                </div>
+            {/if}
+        </section>
+    {/if}
+
+    {#if tab === "practice"}
+        <section class="panel">
+            <h2>Practice</h2>
+            <p class="hint">
+                Train your ear: hear a note and move the matching piece to the
+                square it names. Tune the voices in <strong>Settings</strong> —
+                they apply here too. Use the <strong>Sound key</strong> below the
+                board to remember which instrument and rhythm mean what.
+            </p>
+            <Practice
+                {soundConfig}
+                {pieces}
+                {prettyPiece}
+                {prettyFile}
+                {prettyInstrument}
+                {prettyRhythm}
+                {fileInstruments}
+                {pieceRhythms}
+                {boardThemes}
+            />
+        </section>
+    {/if}
 </div>
